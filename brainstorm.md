@@ -31,3 +31,12 @@ Community response: What did Connoer do?
 
 
 
+The presence of retention does not seem to make a diffenrece in terms of the richness or evenness. The age of the harvest might be negatively associated with there diversity metrics. Also, the interaction of mixedwood and rentetion size is negatively related to these dicversity metrics.
+
+I can do more analyses, but this could simply be what is happeneing: at the community level, there is no evidence that renteiotn patch size confers an advantage to the bird community in regenerating harvests.
+There is another avenue to explore: functional traits. I would not be surprised if there are more old forest birds later and in larger patches.
+
+Odsen community analysius of large-scale retention:
+
+1. rarefied speices richenss on x ![Alt text](image.png)
+2. RDA with blocks of retnetion level, for several groupings of years since harvest ![Alt text](image-1.png)

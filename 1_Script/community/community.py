@@ -10,6 +10,8 @@ data = pd.read_csv(os.path.join(raw_Path,"BU_Harvest_Patch_Retention_-_Community
 #data['point_count'] = data['location'] + " " +  data['recording_date'] + " " +data['recording_time']
 
 # dummies from the species code column, drops column
+
+data = data[data['aru_task_status'] == 'Transcribed']
 data['dummies'] = data['species_code']
 
 abundance = pd.get_dummies(data=data, columns= ['dummies'], prefix='', prefix_sep='')

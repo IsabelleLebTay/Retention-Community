@@ -49,10 +49,35 @@ ul.task-list li input[type="checkbox"] {
 <h1>Community analysis</h1>
 <p>What are the elogical questions?</p>
 <p>Environmental gradients: retnetion patch size, age of harvest, surrounding forest type.</p>
-<p>Observed responses: 1. number of species per location 2. number of individuals of each species per location 3. detection/non-detection of each species per location 4. abundance</p>
-<section id="common-approaches" class="level2">
-<h2 class="anchored" data-anchor-id="common-approaches">Common approaches:</h2>
-</section>
+<p>Observed responses:</p>
+<ol type="1">
+<li>number of species per location</li>
+<li>number of individuals of each species per location</li>
+<li>detection/non-detection of each species per location</li>
+<li>diversity index</li>
+</ol>
+<p>Common approaches:</p>
+<ul>
+<li>logistic regression for each species. 1 model?</li>
+<li>PCA, or clustering</li>
+<li>Functional group response? Probably the “open” species will dislike the retention patches.</li>
+<li>Threshold where some species will really show up? for the richness</li>
+<li>By species, abundance GLM, as Poisson</li>
+<li>By species, piecewise regression, Lionel’s paper</li>
+<li>Species richness as response, GLM with the same covariates as my other paper</li>
+</ul>
+<p>Community response: What did Connoer do?</p>
+<ol type="1">
+<li>species richness estimates are rarefied to acocunt for varying abundance sturcutres due to diffenret sampling radii (Gotelli &amp; Colwell, 2001), with rarefy form vegan using subsample equal to average speices richness across all sites</li>
+<li>Randomized block ANOVA to compare rarified species richenss between categorical treatments. (I can’t do that)</li>
+<li></li>
+</ol>
+<p>The presence of retention does not seem to make a diffenrece in terms of the richness or evenness. The age of the harvest might be negatively associated with there diversity metrics. Also, the interaction of mixedwood and rentetion size is negatively related to these dicversity metrics.</p>
+<p>I can do more analyses, but this could simply be what is happeneing: at the community level, there is no evidence that renteiotn patch size confers an advantage to the bird community in regenerating harvests. There is another avenue to explore: functional traits. I would not be surprised if there are more old forest birds later and in larger patches.</p>
+<p>Odsen community analysius of large-scale retention:</p>
+<ol type="1">
+<li>rarefied speices richenss on x <img src="image.png" class="img-fluid" alt="Alt text"></li>
+</ol>
 </section>
 
 </main>

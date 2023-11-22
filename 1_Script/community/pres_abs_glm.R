@@ -22,20 +22,27 @@ birds <- birds_abund
 # Apply the transformation
 birds[code_columns] <- lapply(birds[code_columns], function(x) as.integer(x > 0))
 
-# View the first few rows of the modified data
-head(birds)
-
 getwd()
 # birds <- read_csv("0. Data/Processed/July 29 results/presence_absence_per_site_mites.csv")
 covariates <-read_csv("0_Data/Processed/merged_covariates.csv")
 
 
+
 # Merge the dataframes on 'location'
 merged_data <- merge(birds, covariates, by = "location", all = FALSE)
 head(merged_data)
+
+ggplot(merged_data, aes(x = RETN_m2)) +
+  geom_histogram()
+
+## This data has a few really large retention pathces. Let;s get rid of those
+pres_abs_covs_noLargePatches <- merged_data |>
+  filter(RETN_m2 < 12000)
+
+
 # Pivot the data to long format
-birds_data_long <- merged_data %>%
-  pivot_longer(ALFL:YRWA.x, names_to = "spp", values_to = "presabs")
+birds_data_long <- pres_abs_covs_noLargePatches %>%
+  pivot_longer(ALFL:PAWR, names_to = "spp", values_to = "presabs")
 
 # View the first few rows of the transformed data
 head(birds_data_long)
@@ -110,13 +117,21 @@ library(nlme)
 library(ncf)
 library(dplyr)
 library(mgcv)
+library(hillR)
+
+birds_abund_covs_noLargePatches <- birds_abund_covs |>
+  filter(RETN_m2 < 12000)
 
 predictors_to_scale <- c('RETN_m2', 'Year_since_logging')
 
 # Apply MinMax scaling to each predictor
-birds_abund_covs[, predictors_to_scale] <- lapply(birds_abund_covs[, predictors_to_scale], function(x) {
+birds_abund_covs_noLargePatches[, predictors_to_scale] <- lapply(birds_abund_covs_noLargePatches[, predictors_to_scale], function(x) {
   (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
 })
+
+
+ggplot(birds_abund_covs_noLargePatches, aes(x = RETN_m2)) +
+  geom_histogram()
 
 diversity_glm <- glmmTMB(Shannon ~ RETN_m2 + Year_since_logging  + Veg_cat
                                     + (1|location),
@@ -160,8 +175,8 @@ birds_abund_covs
 
 write.csv(birds_abund_covs, file.path("0_Data/Processed", "birds_abund_covs.csv"))
 # Prepare species abundance data (assuming these are the last columns, adjust as needed)
-species_data <- birds_abund_covs[, 14:ncol(birds_abund_covs)]  # Adjust the column indices as per your data
-?decostand
+species_data <- birds_abund_covs_noLargePatches[, 14:ncol(birds_abund_covs_noLargePatches)]  # Adjust the column indices as per your data
+
 new_sepcies_data <- decostand(species_data, method = "hellinger")
 
 head(new_sepcies_data)
@@ -169,20 +184,17 @@ head(new_sepcies_data)
 # distance_matrix <- vegdist(species_data, method = "bray")
 names(birds_abund_covs)
 # Environmental variables
-env_data <- birds_abund_covs[, c("RETN_m2", "Year_since_logging", "percent_decid", "percent_mixed",
+env_data <- birds_abund_covs_noLargePatches[, c("RETN_m2", "Year_since_logging", "percent_decid", "percent_mixed",
                                         "percent_spruce", "percent_pine" )]
 env_data
 # Running dbRDA
-dbrda_result <- rda(new_sepcies_data ~ RETN_m2 + Year_since_logging + percent_decid
-                                      + percent_spruce + percent_pine, data = env_data, distance="rlcr",
+dbrda_result <- rda(species_data ~ RETN_m2 + Year_since_logging + percent_decid
+                                      + percent_spruce + percent_pine, data = env_data, distance="bray",
                                       comm = NULL)
 
-install.packages(
-  "ProcMod"
-)
 
-is_euclid(new_sepcies_data)
-is.eucli
+
+
 
 new_sepcies_data <- vegdist(new_sepcies_data, method = "rlcr")
 ?vegdist
@@ -197,5 +209,68 @@ adonis_result <- adonis(species_data ~ RETN_m2 + Year_since_logging + percent_de
 summary(adonis_result)
 View(birds_abund_covs)
 
-library(HillR)
+
 # hill_taxa (q=0) will give richness
+?hill_taxa
+birds_abund_covs_noLargePatches$richness <- hill_taxa(comm= species_data, q=0)
+birds_abund_covs_noLargePatches$evenness <- hill_taxa(comm= species_data, q=2)
+birds_abund_covs$evenness
+
+
+species_data$BTNW
+CAWA <-birds_abund |>
+      filter(CAWA > 0)
+View(CAWA)
+
+
+comm_richness <- glmmTMB(richness ~ percent_decid + percent_pine + 
+                            percent_spruce +
+                            RETN_m2 * Year_since_logging,
+                    data = birds_abund_covs_noLargePatches,
+                    family=poisson)
+summary(comm_richness)
+
+
+birds_abund_covs_noLargePatches$Veg_cat <- as.factor(birds_abund_covs_noLargePatches$Veg_cat)
+birds_abund_covs_noLargePatches$Veg_cat <- relevel(birds_abund_covs_noLargePatches$Veg_cat, ref = "n")
+
+comm_richness_interact <- glmmTMB(richness ~ RETN_m2 * Year_since_logging * Veg_cat,
+                    data = birds_abund_covs_noLargePatches,
+                    family=poisson)                    
+summary(comm_richness_interact)
+
+gam_richness <- gam(richness ~ s(RETN_m2, Year_since_logging),
+                    data = birds_abund_covs,
+                    family=poisson)    
+plot(gam_richness)
+
+birds_abund_covs_noLargePatches |>
+        ggplot(aes(x = RETN_m2, y = richness, color = Veg_cat)) +
+        geom_point()
+      
+
+## Cannot have an evenness when there are no species
+birds_abund_covs_positives <- birds_abund_covs_noLargePatches |>
+                                                filter(evenness != "Inf")
+
+
+comm_evenness <- glmmTMB(evenness ~ percent_decid + percent_pine + 
+                            percent_spruce +
+                            RETN_m2 * Year_since_logging,
+                    data = birds_abund_covs_positives,
+                    family=gaussian)
+summary(comm_evenness)
+
+birds_abund_covs_positives |>
+        ggplot(aes(x = RETN_m2, y = evenness, color = Veg_cat)) +
+        geom_point()
+
+comm_evenness_interact <- glmmTMB(evenness ~  RETN_m2 * Year_since_logging * Veg_cat,
+                    data = birds_abund_covs_positives,
+                    family=gaussian)
+summary(comm_evenness_interact)
+
+BTNW <- birds_abund_covs_positives |>
+                      filter(BTNW > 0)
+View(BTNW)
+write.csv(INF, file.path("0_Data/Processed", 'sites with no detections & no bad weather.csv'))
