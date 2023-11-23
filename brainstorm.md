@@ -23,9 +23,9 @@ Common approaches:
 
 
 
-Community response: What did Connoer do?
+Community response: What did Connor do?
 
-1. species richness estimates are rarefied to acocunt for varying abundance sturcutres due to diffenret sampling radii (Gotelli & Colwell, 2001), with rarefy form vegan using subsample equal to average speices richness across all sites
+1. species richness estimates are rarefied to account for varying abundance structures due to different sampling radii (Gotelli & Colwell, 2001), with rarefy form vegan using subsample equal to average speices richness across all sites
 2. Randomized block ANOVA to compare rarified species richenss between categorical treatments. (I can't do that)
 3. 
 
@@ -40,3 +40,9 @@ Odsen community analysius of large-scale retention:
 
 1. rarefied speices richenss on x ![Alt text](image.png)
 2. RDA with blocks of retnetion level, for several groupings of years since harvest ![Alt text](image-1.png)
+
+
+How to interpret RDA ellipses?
+
+1. The size of the circle: the sites that are within the circle are more or less similar in terms of their species compositions.
+2. Overlap: are the categories different form one another?
