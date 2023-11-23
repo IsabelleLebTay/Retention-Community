@@ -25,8 +25,8 @@ library(patchwork)
 
 #2 Read the CSV file----
 birds_abund <- read_csv(file.path("0_Data/Processed", "community_abundance_by_location.csv"))
-head(birds_abund)
-names(birds_abund)
+# head(birds_abund)
+# names(birds_abund)
 
 covariates <-read_csv("0_Data/Processed/merged_covariates.csv")
 
@@ -35,12 +35,11 @@ covariates <-read_csv("0_Data/Processed/merged_covariates.csv")
 #3 Logitic regressions on presence/absence----
 # Identify the columns with the four-letter codes
 # Assuming these are all the columns after 'longitude'
-code_columns <- names(birds_abund)[5:ncol(birds)]
+code_columns <- names(birds_abund)[5:ncol(birds_abund)]
 
 birds <- birds_abund
 # Apply the transformation
 birds[code_columns] <- lapply(birds[code_columns], function(x) as.integer(x > 0))
-
 
 # Merge the dataframes on 'location'
 merged_data <- merge(birds, covariates, by = "location", all = FALSE)
@@ -49,10 +48,9 @@ head(merged_data)
 ggplot(merged_data, aes(x = RETN_m2)) +
   geom_histogram()
 
-## This data has a few really large retention pathces. Let;s get rid of those
+# This data has a few really large retention pathces. Let;s get rid of those
 pres_abs_covs_noLargePatches <- merged_data |>
   filter(RETN_m2 < 12000)
-
 
 # Pivot the data to long format
 birds_data_long <- pres_abs_covs_noLargePatches %>%
@@ -63,7 +61,6 @@ head(birds_data_long)
 
 # birds_data_long <- bind_cols(birds_env, birds) |> 
 #   pivot_longer(OSFL:YRWA, names_to = "spp", values_to = "presabs")
-
 
 birds_data_long |> 
   ggplot(aes(x = RETN_m2, y = presabs)) + 
@@ -76,7 +73,6 @@ birds_data_long |>
   geom_point() + 
   stat_smooth(method = "glm", method.args = list(family = "binomial")) + 
   facet_wrap(~spp)
-
 
 birds_many_glms <- birds_data_long |> 
   nest_by(spp) |> 
@@ -96,7 +92,6 @@ birds_many_glm_coefs |>
              xmax = estimate + std.error)) + 
   geom_pointrange() + 
   facet_wrap(~term, scales = "free")
-
 
 birds_many_glm_coefs |> 
   ggplot(aes(x = estimate)) + 
@@ -124,7 +119,6 @@ selected_covariates <- covariates[, c("location", "percent_decid", "percent_mixe
 birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location", all = FALSE)
 names(birds_abund_covs)
 
-
 birds_abund_covs_noLargePatches <- birds_abund_covs |>
   filter(RETN_m2 < 12000)
 
@@ -135,7 +129,6 @@ birds_abund_covs_noLargePatches[, predictors_to_scale] <- lapply(birds_abund_cov
   (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
 })
 
-
 ggplot(birds_abund_covs_noLargePatches, aes(x = RETN_m2)) +
   geom_histogram()
 
@@ -145,7 +138,6 @@ diversity_glm <- glmmTMB(Shannon ~ RETN_m2 + Year_since_logging  + Veg_cat
                         family = gaussian)
 summary(diversity_glm)
 plot(simulateResiduals(diversity_glm))
-
 
 par(mfrow=c(1,1))
 names(birds_abund_covs)
@@ -169,17 +161,26 @@ divers_resd_XY <- residuals(diversity_glm_autoXY)
 corr <- spline.correlog(birds_abund_covs$longitude.y, birds_abund_covs$latitude.y, divers_resd, resamp = 99, type = "boot")
 corrXY <- spline.correlog(birds_abund_covs$longitude.y, birds_abund_covs$latitude.y, divers_resd_XY, resamp = 99, type = "boot")
 
-
 par(mfrow=c(1,2))
 plot(corr, main='null model')
 plot(corrXY, main='spatial model')
 
-birds_abund_covs
-
-
-#6 Richness and evenness
+#5 Richness and evenness----
 # hill_taxa (q=0) will give richness
-?hill_taxa
+
+#5.1 Prepare the data-----
+selected_covariates <- covariates[, c("location", "percent_decid", "percent_mixed",
+                                        "percent_spruce", "percent_pine",
+                                        "RETN_m2", "RETN_perimeter_m",
+                                        "Year_since_logging", "Veg_cat")]
+birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location", all = FALSE)
+# names(birds_abund_covs)
+
+birds_abund_covs_noLargePatches <- birds_abund_covs |>
+  filter(RETN_m2 < 12000)
+
+species_data <- birds_abund_covs_noLargePatches[, 14:ncol(birds_abund_covs_noLargePatches)]  # Adjust the column indices as per your data
+
 birds_abund_covs_noLargePatches$richness <- hill_taxa(comm= species_data, q=0)
 birds_abund_covs_noLargePatches$evenness <- hill_taxa(comm= species_data, q=2)
 birds_abund_covs_noLargePatches$evenness
@@ -187,10 +188,10 @@ birds_abund_covs_noLargePatches$evenness
 ## Cannot have an evenness when there are no species
 community_covs_positives <- birds_abund_covs_noLargePatches |>
                                             filter(evenness != "Inf")
-species_data$BTNW
-CAWA <-birds_abund |>
-      filter(CAWA > 0)
-View(community_covs_scaled)
+# species_data$BTNW
+# CAWA <-birds_abund |>
+#       filter(CAWA > 0)
+# View(community_covs_scaled)
 
 # Scale the predictors
 community_covs_scaled <- community_covs_positives
@@ -199,39 +200,103 @@ community_covs_scaled[, predictors_to_scale] <- lapply(community_covs_scaled[, p
   (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
 })
 
-
 comm_richness <- glmmTMB(richness ~ percent_decid + percent_pine + 
                             percent_spruce +
-                            RETN_m2 + Year_since_logging,
+                            RETN_m2 + Year_since_logging+ I(Year_since_logging^2),
                     data = community_covs_scaled,
                     family=poisson)
 summary(comm_richness)
 
-
-birds_abund_covs_noLargePatches$Veg_cat <- as.factor(birds_abund_covs_noLargePatches$Veg_cat)
-birds_abund_covs_noLargePatches$Veg_cat <- relevel(birds_abund_covs_noLargePatches$Veg_cat, ref = "n")
+community_covs_scaled$Veg_cat <- as.factor(community_covs_scaled$Veg_cat)
+# birds_abund_covs_noLargePatches$Veg_cat <- relevel(birds_abund_covs_noLargePatches$Veg_cat, ref = "n")
 
 comm_richness_interact <- glmmTMB(richness ~ RETN_m2 * Year_since_logging * Veg_cat,
-                    data = birds_abund_covs_noLargePatches,
+                    data = community_covs_scaled,
                     family=poisson)                    
 summary(comm_richness_interact)
 
-gam_richness <- gam(richness ~ s(RETN_m2, Year_since_logging),
-                    data = birds_abund_covs,
+gam_richness1 <- gam(richness ~ s(Year_since_logging),
+                    data = community_covs_scaled,
+                    family=poisson)   
+summary(gam_richness1)
+plot(gam_richness1)
+AIC(gam_richness1)
+gam_richness2 <- gam(richness ~ s(Year_since_logging) + RETN_m2,
+                    data = community_covs_scaled,
                     family=poisson)    
-plot(gam_richness)
+summary(gam_richness2)
+plot(gam_richness2)
+AIC(gam_richness2)
+
+gam_richness3 <- gam(richness ~ s(Year_since_logging) + RETN_m2 + Veg_cat,
+                    data = community_covs_scaled,
+                    family=poisson)    
+summary(gam_richness3)
+png(file.path("2_Outputs", "richness gam.png"), width = 400, height = 400)
+
+plot(gam_richness3, residuals=FALSE, rug = FALSE, all.terms = FALSE, 
+      ylab = "Effect of year since logging on Richness",
+      xlab = "Year since logging, scaled from 0-22 years")
+dev.off()
+AIC(gam_richness3)
+
+gam_richness4 <- gam(richness ~ s(Year_since_logging) + RETN_m2 * Veg_cat,
+                    data = community_covs_scaled,
+                    family=poisson)    
+summary(gam_richness4)
+plot(gam_richness4)
+AIC(gam_richness4)
+
+gam_richness5 <- gam(richness ~ s(Year_since_logging) + Veg_cat,
+                    data = community_covs_scaled,
+                    family=poisson)    
+summary(gam_richness5)
+plot(gam_richness5)
+AIC(gam_richness5)
 
 birds_abund_covs_noLargePatches |>
         ggplot(aes(x = RETN_m2, y = richness, color = Veg_cat)) +
         geom_point()
       
-
 comm_evenness <- glmmTMB(evenness ~ percent_decid + percent_pine + 
                             percent_spruce +
                             RETN_m2 + Year_since_logging,
                     data = community_covs_scaled,
                     family=gaussian)
 summary(comm_evenness)
+
+png(file.path("2_Outputs", "evenness gam.png"), width = 400, height = 400)
+
+gam_evenness <- gam(evenness ~ s(Year_since_logging),
+                    data = community_covs_scaled,
+                    family=gaussian)    
+summary(gam_evenness)
+plot(gam_evenness,
+      ylab = "Effect of year since logging on Richness",
+      xlab = "Year since logging, scaled from 0-22 years")
+dev.off()
+AIC(gam_evenness)
+
+gam_evenness2 <- gam(evenness ~ s(Year_since_logging) + RETN_m2,
+                    data = community_covs_scaled,
+                    family=gaussian)    
+summary(gam_evenness2)
+plot(gam_evenness2)
+AIC(gam_evenness2)
+
+gam_evenness3 <- gam(evenness ~ s(Year_since_logging) + RETN_m2 + Veg_cat,
+                    data = community_covs_scaled,
+                    family=gaussian)    
+summary(gam_evenness3)
+plot(gam_evenness3)
+AIC(gam_evenness3)
+
+gam_evenness4 <- gam(evenness ~ s(Year_since_logging) + RETN_m2 * Veg_cat,
+                    data = community_covs_scaled,
+                    family=gaussian)    
+summary(gam_evenness4)
+plot(gam_evenness4)
+AIC(gam_evenness4)
 
 # Extract fitted values
 community_covs_scaled$fitted_evenness <- fitted(comm_evenness)
@@ -258,7 +323,6 @@ png(file.path("2_Outputs", "richness and evenness.png"), width = 1000, height = 
 p1 <- ggplot(community_covs_scaled, aes(x = Year_since_logging, y = evenness)) +
   geom_point() +
   geom_smooth(method = "glm", method.args = list(family = "gaussian"))
-
 
 # Create a simple plot showing how evenness changes with age
 p2 <- ggplot(community_covs_scaled, aes(x = Year_since_logging, y = richness)) +
@@ -297,75 +361,86 @@ community_covs_scaled %>%
   xlab("Year Since Logging") +
   ylab("Evenness")
 
-
-
-
 BTNW <- birds_abund_covs_positives |>
                       filter(BTNW > 0)
 View(BTNW)
 write.csv(INF, file.path("0_Data/Processed", 'sites with no detections & no bad weather.csv'))
 
-#5 Distance-based redundancy analysis----
+#6 Distance-based redundancy analysis, continuous predictors----
 ## dbRDA
-
-write.csv(birds_abund_covs_noLargePatches, file.path("0_Data/Processed", "birds_abund_covs_noLargePatches.csv"))
+# write.csv(birds_abund_covs_noLargePatches, file.path("0_Data/Processed", "birds_abund_covs_noLargePatches.csv"))
 # Prepare species abundance data (assuming these are the last columns, adjust as needed)
-species_data <- birds_abund_covs_noLargePatches[, 14:ncol(birds_abund_covs_noLargePatches)]  # Adjust the column indices as per your data
-View(community_covs)
-new_sepcies_data <- decostand(species_data, method = "hellinger")
+# View(community_covs)
 
-head(new_sepcies_data)
+new_species_data <- decostand(select(community_covs_scaled, CCSP:PAWR), method = "hellinger")
+# ?decostand
+head(new_species_data)
 # Calculate the Bray-Curtis distance matrix
 # distance_matrix <- vegdist(species_data, method = "bray")
 names(birds_abund_covs)
 # Environmental variables
 
-
-env_data <- birds_abund_covs_noLargePatches[, c("RETN_m2", "Year_since_logging", "percent_decid", "percent_mixed",
-                                        "percent_spruce", "percent_pine" )]
-env_data
+env_data <- community_covs_scaled[, c("RETN_m2", "Year_since_logging", "percent_decid", "percent_mixed",
+                                        "percent_spruce", "percent_pine", "Veg_cat")]
 
 # Reset to default single panel plot setting
 par(mfrow=c(1,1))
-png(file.path("2_Outputs", "dbrda plots by year categories.png"), width = 1200, height = 800)
-
+dev.off()
 # Running dbRDA
-rda_result <- rda(new_sepcies_data ~ RETN_m2 + Year_since_logging + percent_decid
+rda_result <- rda(new_species_data ~ RETN_m2 + Year_since_logging + percent_decid
                                       + percent_spruce + percent_pine, data = env_data, distance="bray",
                                       comm = NULL)
 
-rda_model <- rda(species_data_hel ~ RETN_m2 + Year_since_logging + Veg_cat, data = env_data)
-View(env_data)
+dbrda_result <- dbrda(new_species_data ~ RETN_m2 + Year_since_logging + percent_decid
+                                      + percent_spruce + percent_pine, data = env_data, distance="bray",
+                                      comm = NULL)
+?dbrda
+rda_model <- rda(new_species_data ~ RETN_m2 + Year_since_logging + Veg_cat, data = env_data)
+View(community_covs_scaled)
 
 # View the results
 summary(rda_result)
 plot(rda_model)
-anova(rda_model, by = "margin")
+png(file.path("2_Outputs", "dbrda plot.png"), width = 500, height = 500)
+plot(dbrda_result)
+dev.off()
+anova(dbrda_result, by = "margin")
 
+png(file.path("2_Outputs", "dbrda plot colour.png"), width = 500, height = 500)
 
+# Add vectors for explanatory variables
+# Define a color for each variable
+vector_colors <- c("RETN_m2" = "red", "Year_since_logging" = "blue", "percent_decid" = "green", 
+                   "percent_spruce" = "orange", "percent_pine" = "purple")
+# plot(dbrda_result)
+# Use ordiplot() to create a base plot
+ordiplot(dbrda_result, display = "sites")
 
+# Determine a scaling factor for arrow lengths
+scale_factor <- 4  # Adjust this value as needed to match the length of arrows in the default plot
 
-#6 RDA with discrete groupings of retention amount----
+# Add scaled vectors with colors
+for (var in names(vector_colors)) {
+    vectors <- scores(dbrda_result, display = "bp", choices = 1:2)
+    if (var %in% rownames(vectors)) {
+        arrows(0, 0, vectors[var, 1] * scale_factor, vectors[var, 2] * scale_factor, col = vector_colors[var], length = 0.1)
+        text(vectors[var, 1] * scale_factor, vectors[var, 2] * scale_factor, labels = var, col = vector_colors[var], pos = 3)
+    }
+}
+dev.off()
+
+#7 RDA with discrete groupings of retention amount----
 # Read the CSV file containing the species community matrix and site covariates
 community_covs <- read.csv(file.path("0_Data/Processed","birds_abund_covs_noLargePatches.csv"))
 
-community_covs$RETN_cat <- ifelse(community_covs$RETN_m2 == 0, 
-                        0, 
-                        cut(community_covs$RETN_m2, 
-                            breaks = c(min(community_covs$RETN_m2[community_covs$RETN_m2 > 0]), 
-                                       median(community_covs$RETN_m2[community_covs$RETN_m2 > 0]), 
-                                       max(community_covs$RETN_m2)), 
-                            include.lowest = TRUE, 
-                            labels = c("1-50%", "51-100%")))
-
-community_covs$RETN_cat <- ifelse(community_covs$RETN_m2 == 0, 
-                        0, 
-                        cut(community_covs$RETN_m2, 
-                            breaks = c(min(community_covs$RETN_m2[community_covs$RETN_m2 > 0]), 
-                                       median(community_covs$RETN_m2[community_covs$RETN_m2 > 0]), 
-                                       max(community_covs$RETN_m2)), 
-                            include.lowest = TRUE, 
-                            labels = c("1-50%", "51-100%")))
+# community_covs$RETN_cat <- ifelse(community_covs$RETN_m2 == 0, 
+#                         0, 
+#                         cut(community_covs$RETN_m2, 
+#                             breaks = c(min(community_covs$RETN_m2[community_covs$RETN_m2 > 0]), 
+#                                        median(community_covs$RETN_m2[community_covs$RETN_m2 > 0]), 
+#                                        max(community_covs$RETN_m2)), 
+#                             include.lowest = TRUE, 
+#                             labels = c("1-50%", "51-100%")))
 
 # create_RETN_categories <- function(data, size_breaks) {
 #     # Ensure size_breaks is a numeric vector and sorted
@@ -390,58 +465,71 @@ community_covs$RETN_cat <- ifelse(community_covs$RETN_m2 == 0,
 #     return(data)
 # }
 
-community_covs <- create_RETN_categories(community_covs, c(25, 50, 75))
-
-predictors_to_scale <- c('RETN_m2', 'Year_since_logging')
-
-predictors_to_scale <- 'RETN_m2'
-
-# Apply MinMax scaling to each predictor
-community_covs_scaled <- community_covs
-community_covs_scaled[, predictors_to_scale] <- lapply(community_covs[, predictors_to_scale], function(x) {
-  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
-})
-
-community_covs_logs <- community_covs
-community_covs_logs[, predictors_to_scale] <- lapply(community_covs[, predictors_to_scale], function(x) {
-  (log(x+1))
-})
-
-# Change the dataframe to scaled
-community_covs <- community_covs_logs
+# community_covs <- create_RETN_categories(community_covs, c(25, 50, 75))
 
 species_data <- select(community_covs, CCSP:PAWR)  # include only the columns for species
-View(community_covs_logs)
+
 community_covs$evenness <- hill_taxa(comm= species_data, q=2)
 ## Cannot have an evenness when there are no species
 community_covs_positives <- community_covs |>
                                             filter(evenness != "Inf")
 
-species_data <- select(community_covs_positives, CCSP:PAWR)  # Adjust the column indices as per your data
+predictors_to_scale <- c('RETN_m2', 'Year_since_logging')
+
+# predictors_to_scale <- c('RETN_m2')
+
+# Apply MinMax scaling to each predictor
+community_covs_scaled <- community_covs_positives
+community_covs_scaled[, predictors_to_scale] <- lapply(community_covs[, predictors_to_scale], function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+})
+
+# community_covs_logs <- community_covs
+# community_covs_logs$RETN_m2 <- lapply(community_covs$RETN_m2, function(x) {
+#   (log(x+1))
+# })
+# Create the RETN_cat column
+community_covs_scaled <- community_covs_scaled %>%
+  mutate(RETN_cat = case_when(
+    RETN_m2 == 0 ~ 0,
+    RETN_m2 > 0 & RETN_m2 <= 0.25 ~ 1,
+    RETN_m2 > 0.25 & RETN_m2 <= 0.50 ~ 2,
+    RETN_m2 > 0.50 & RETN_m2 <= 0.75 ~ 3,
+    RETN_m2 > 0.75 ~ 4
+  ))
+community_covs_scaled$RETN_cat = as.factor(community_covs_scaled$RETN_cat)
+
+# Plotting the histogram of RETN_cat
+# ggplot(community_covs_scaled, aes(x = RETN_cat)) +
+#   geom_histogram(stat = "count") +
+#   # scale_x_continuous(breaks = 0:4) +
+#   xlab("RETN Category") +
+#   ylab("Frequency")
+
+# write.csv(community_covs_scaled, file.path("0_Data/Processed", "scaled_hellinger_community.csv"))
+# Change the dataframe to scaled
+
+species_data <- select(community_covs_scaled, CCSP:PAWR)  # Adjust the column indices as per your data
 
 # Hellinger transformation of the species counts
-community_covs_positives$Hellinger <- decostand(species_data, method = "hellinger")
 
+hellinger_species_data <- decostand(select(community_covs_scaled, CCSP:PAWR), method = "hellinger")
 # Prepare the environmental data
-env_data <- community_covs_positives[, c("RETN_m2", "Year_since_logging")]
-
-# Add a small amount of jitter to RETN_m2 to ensure unique breaks
-# set.seed(123)  # for reproducibility
-# community_covs_positives$RETN_m2_jittered <- jitter(community_covs_positives$RETN_m2, amount = 1e-6)
-# Create a categorical variable for RETN_m2 with quantiles
-View(community_covs_positives)
-
+env_data <- community_covs_scaled[, c("RETN_cat", "Year_since_logging", "Veg_cat")]
 
 # Perform the RDA
-rda_model <- rda(species_data_hel ~ RETN_m2 + Year_since_logging + Veg_cat, data = community_covs_positives)
-
+rda_model <- rda(hellinger_species_data ~ RETN_cat 
+                  + Year_since_logging + Veg_cat, 
+                  data = env_data)
+# View(community_covs_positives)
 # Ensure the data frame has appropriate row names
 rownames(community_covs_positives) <- as.character(1:nrow(community_covs_positives))
 plot(rda_model)
 
 summary(rda_model)
-anova(rda_model)
+anova(rda_model, by = "margin")
 RsquareAdj(rda_model)
+
 #7 Single plot RDA----
 # Filter the RDA results for year_since_logging = 1 or 2
 years_1_2_filtered <- community_covs_positives[community_covs_positives$Year_since_logging %in% c(1, 2, 3, 4, 5), ]
@@ -475,46 +563,64 @@ if (nrow(matched_scores) == nrow(years_1_2_filtered)) {
   stop("The number of ordination scores does not match the number of group labels.")
 }
 
-
-
 #8 Several RDA subplots----
 
-# Assuming the RDA model has been performed as rda_model
-
+rda_model <- rda(hellinger_species_data ~ RETN_cat 
+                  + Year_since_logging + Veg_cat, 
+                  data = env_data)
+# Get ordination scores
+ordination_scores <- scores(rda_model, display = "sites")
 # Define the year ranges for subsetting
 # year_ranges <- list(`1-4` = 1:4, `8-12` = 8:12, `18-22` = 18:22, `16-22` = 20:22)
 
 year_ranges <- list(`1-4` = 1:4, `8-12` = 8:12, `18-22` = 18:22)
 # Set up the file to save the plot
-png(file.path("2_Outputs", "rda plots by year categories.png"), width = 1200, height = 800)
+dev.off()
+png(file.path("2_Outputs", "rda plots by year categories, 4 patch sizes.png"), width = 1000, height = 1000)
 
 # Setup the plotting area for a 2x2 layout
 par(mfrow=c(2, 2))
 
-# Define line types for ellipses
-# line_types <- c("solid", "dashed", "dotted")
-
 # Loop through the year ranges to create plots
+
+subset_years <- community_covs_positives |>
+  filter(Year_since_logging == 8)
+nrow(subset_years)
+class(community_covs_positives$Year_since_logging)
+unique(community_covs_positives$Year_since_logging)
+dev.off()
+
+# Setup the plotting area for a 2x2 layout
+
+png(file.path("2_Outputs", "rda plots by year categories, 5 patch sizes.png"), width = 500, height = 500)
+par(mfrow=c(2, 2))
 for (i in seq_along(year_ranges)) {
-    # Filter data for the current range of years
-    years_filtered <- subset(community_covs_positives, Year_since_logging %in% year_ranges[[i]])
-    
+    # Reverse the Yeear_since_logging to their originl unscaled integers
+    community_covs_scaled$Year_since_logging <- community_covs_positives$Year_since_logging
+    # current_year_range <- year_ranges[[i]]
+    years_filtered <- subset(community_covs_scaled, Year_since_logging %in% year_ranges[[i]])
+    # print(community_covs_scaled$Year_since_logging)
+    # print(years_filtered)
+
     # Ensure no NA or infinite values in the filtered data
     years_filtered <- na.omit(years_filtered)
-    years_filtered <- years_filtered[is.finite(years_filtered$RETN_m2), ]
+    years_filtered <- years_filtered[is.finite(years_filtered$RETN_cat), ]
     
     # Adjust the row names as done before
     adjusted_row_names <- as.numeric(gsub("row", "", rownames(ordination_scores)))
-    
+    # print(adjusted_row_names)
     # Match scores with the filtered data
     matched_scores <- ordination_scores[adjusted_row_names %in% rownames(years_filtered), ]
-    
+# print(matched_scores)    
     years_filtered$RETN_cat <- as.factor(years_filtered$RETN_cat)
     col_palette <- palette()[years_filtered$RETN_cat]
+    print(col_palette) # fixed
 # print(col_palette)
       # Create the plot for the current year range
     if (nrow(matched_scores) == nrow(years_filtered)) {
+      print(matched_scores)
         # Plot the RDA with ellipses for the categories of RETN_m2
+        
         plot(rda_model, type = "n", main = paste("Years", names(year_ranges)[i]))
         points(matched_scores, pch = 19, cex = 0.5, col=unique(col_palette))
         ordiellipse(matched_scores, groups = factor(years_filtered$RETN_cat),
@@ -529,7 +635,6 @@ for (i in seq_along(year_ranges)) {
     }
 }
 
-
 # For the fourth subplot, use the full dataset and focus on Veg_cat for ellipses
 # Ensure no NA or infinite values in the full data
 # data_full <- na.omit(community_covs_positives)
@@ -538,7 +643,7 @@ for (i in seq_along(year_ranges)) {
 adjusted_row_names <- as.numeric(gsub("row", "", rownames(ordination_scores)))
 matched_scores_full <- ordination_scores[adjusted_row_names %in% rownames(community_covs_positives), ]
 
-plot(rda_model, type = "n", main = "All Ages")
+plot(rda_model, type = "n", main = "All sites")
 
 # unique_veg_cats <- unique(data_full$Veg_cat)
 community_covs_positives$Veg_cat <- as.factor(community_covs_positives$Veg_cat)
@@ -551,16 +656,12 @@ ordiellipse(matched_scores_full, groups = factor(community_covs_positives$Veg_ca
             label = FALSE,
             col = unique(col_palette)) 
 
-
 # Add a custom legend for ellipses for Veg_cat
 legend("topright", legend = unique(community_covs_positives$Veg_cat), col=unique(col_palette), pch = 16, 
        title = "Veg Categories", bty = "n")
-
-
 
 # Close the device to save the file
 dev.off()
 
 # Reset to default single panel plot setting
 par(mfrow=c(1,1))
-
