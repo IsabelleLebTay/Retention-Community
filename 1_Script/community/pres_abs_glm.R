@@ -199,7 +199,7 @@ predictors_to_scale <- c('RETN_m2', 'Year_since_logging')
 community_covs_scaled[, predictors_to_scale] <- lapply(community_covs_scaled[, predictors_to_scale], function(x) {
   (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
 })
-
+write.csv(community_covs_scaled, file.path("0_Data/Processed", "Community_scaled.csv"))
 comm_richness <- glmmTMB(richness ~ percent_decid + percent_pine + 
                             percent_spruce +
                             RETN_m2 + Year_since_logging+ I(Year_since_logging^2),
@@ -371,8 +371,32 @@ write.csv(INF, file.path("0_Data/Processed", 'sites with no detections & no bad 
 # write.csv(birds_abund_covs_noLargePatches, file.path("0_Data/Processed", "birds_abund_covs_noLargePatches.csv"))
 # Prepare species abundance data (assuming these are the last columns, adjust as needed)
 # View(community_covs)
+community_covs_scaled <- read.csv(file.path("0_Data/Processed", "Community_scaled.csv"))
 
-new_species_data <- decostand(select(community_covs_scaled, CCSP:PAWR), method = "hellinger")
+# Select speices that are present at least 3 sites
+Species_detection_histories <- read.csv(file.path("0_Data/Processed", "species_detection_rate.csv"))
+View(Species_detection_histories)
+# Select species present in at least 3 sites
+at_least_3_locations <- Species_detection_histories |>
+  filter(Number.of.sites.where.detected >= 3)
+
+# Filter to get species codes detected in at least 3 sites
+vector_at_least_3_locations <- Species_detection_histories %>%
+  filter(Number.of.sites.where.detected >= 3) %>%
+  pull(species_code)  # Extract species codes as a vector
+
+# Select columns from community_covs_scaled based on the filtered species codes
+species_columns_at_least_3_detects <- community_covs_scaled %>%
+  select(all_of(vector_at_least_3_locations))
+
+ncol(species_columns_at_least_3_detects) # 72 species
+
+all_species_columns <- select(community_covs_scaled, CCSP:PAWR)
+ncol(all_species_columns) # 91 species total
+
+# not_transformed_species_data <- all_species_columns # or species_columns_at_least_3_detects
+not_transformed_species_data <- species_columns_at_least_3_detects # or all_species_columns
+hellinger_species_data <- decostand(select(community_covs_scaled, CCSP:PAWR), method = "hellinger")
 # ?decostand
 head(new_species_data)
 # Calculate the Bray-Curtis distance matrix
@@ -391,7 +415,7 @@ rda_result <- rda(new_species_data ~ RETN_m2 + Year_since_logging + percent_deci
                                       + percent_spruce + percent_pine, data = env_data, distance="bray",
                                       comm = NULL)
 
-dbrda_result <- dbrda(new_species_data ~ RETN_m2 + Year_since_logging + percent_decid
+dbrda_result <- dbrda(not_transformed_species_data ~ RETN_m2 + Year_since_logging + percent_decid
                                       + percent_spruce + percent_pine, data = env_data, distance="bray",
                                       comm = NULL)
 ?dbrda
@@ -399,12 +423,14 @@ rda_model <- rda(new_species_data ~ RETN_m2 + Year_since_logging + Veg_cat, data
 View(community_covs_scaled)
 
 # View the results
-summary(rda_result)
-plot(rda_model)
-png(file.path("2_Outputs", "dbrda plot.png"), width = 500, height = 500)
+summary(dbrda_result)
+plot(dbrda_result)
+anova(dbrda_result) #overall test of the significance of the analysis
+anova(dbrda_result, by="terms", permu=200) # significance by terms
+# png(file.path("2_Outputs", "dbrda plot.png"), width = 500, height = 500)
 plot(dbrda_result)
 dev.off()
-anova(dbrda_result, by = "margin")
+anova(dbrda_result, by = "margin") # difference between marginal and by terms significance??
 
 png(file.path("2_Outputs", "dbrda plot colour.png"), width = 500, height = 500)
 

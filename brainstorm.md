@@ -46,3 +46,12 @@ How to interpret RDA ellipses?
 
 1. The size of the circle: the sites that are within the circle are more or less similar in terms of their species compositions.
 2. Overlap: are the categories different form one another?
+
+
+# Functional Diversity
+
+From Brendan Casey's PhD on hravest retention morphology on community compositions:
+> While species diversity has long been used in forestry research, functional diversity (i.e. the value and range of species traits present in a community) are better linked with the underlying processes driving communities (Petchey & Gaston, 2006).
+
+Also, Brendant limited species to those with known breeding ranges in the study region that were detected at a minimum of three survey locations.
+
