@@ -1,12 +1,12 @@
 ---
 title: calculate_functional_diversity
-date: 2023-11-28
+date: 2024
 type: reference
 tags: " #code/R "
 description: "Code for calculating functional diversity in R"
 ---
 **Original Script by Dr. Brendan Casey**
-
+**Script modified by ILT**
 Methods by:
 Laliberté, E.; Legendre, P.; Shipley, B. FD: Measuring Functional Diversity from Multiple Traits, and Other Tools for Functional Ecology. R Package Version 1.0-12. 2014. Available online: <https://cran.r-project.org/web/packages/FD>.
 
@@ -14,16 +14,16 @@ Trait data can be accessed in R using https://github.com/RS-eco/traitdata.
 
 ```R
 #Get functional traits from the traitdata package
-install.packages("remotes")
-library(remotes)
-remotes::install_github("RS-eco/traitdata")
+# install.packages("remotes")
+# library(remotes)
+# remotes::install_github("RS-eco/traitdata")
 library(traitdata)
+##Load packages----
+library(FD)
+library(tidyverse)
+library(dplyr)
+library(readr)
 
-# view glossary of trait data objects
-t<-trait_glossary
-
-# get bird traits
-el<-elton_birds
 ```
 
 
@@ -32,28 +32,53 @@ Calculate functional diversity using the `FD` package in R:
 ```R
 #Setup ----
 
-##Load packages----
-library(FD)
-library(tidyverse)
-
 ##Import data----
-### Load dataframe with functional traits----
-#data frame with a species column and columns for traits. E.g.:
+## Load community data
+
+abundance_data <- read_csv("0_Data/Processed/community_abundance_by_location_common_names - matching names.csv") 
+View(abundance_data)
+## Get the trait data----
+trait_data_all_birds <- elton_birds
+# write.csv(trait_data, "0_Data/Processed/trait data.csv")
+
+### Create dataframe where rows are indexed by species, columns are traits----
+# 1. create list from abundance columns
+# Extract species names starting from the 6th column
+species_names <- colnames(abundance_data)[6:length(colnames(abundance_data))]
+
+# Filter trait data for desired birds
+trait_data_select_birds <- trait_data_all_birds |>
+                              filter(English %in% species_names)
+
+species_found <- trait_data_select_birds$English
+# Find items in list1 that are not in list2
+missing_in_list2 <- setdiff(species_names, species_found)
+
+# Find items in list2 that are not in list1 (if needed)
+missing_in_list1 <- setdiff(species_found, species_names)
+
+# renamed: Clay-coloured sparrow, Canada Jay, LeConte's Sparrow, Western Wood-Pewee,
+# Dusky Flycatcher, Brown Creeper to American Treecreeper, European Starling to Common Starling, 
+# no trait data: Wilsons snipe, Pacific Wren
+# Printing the results
+print(missing_in_list2)
+print(missing_in_list1)
+
+### Trim trait dataframe as:
 #|species|diet.inv|diet.vend|diet.vect|diet.seed|forestStrat.groud|
-load("0_data/manual/bird/bd_traits_full_2023-03-20.rData")
+# trait_dataframe <- trait_data_select_birds %>%
+#                     select(English, Diet.Inv, Diet.Vend, Diet.Vect, Diet.Seed, ForStrat.ground)
+names(trait_dataframe)[names(trait_dataframe) == "English"] <- "Species_common"
+View(detection_data)
 
 ### Load dataframe with site level detection data----
-# dataframe should have a site column, year or date column, and columns each species and their detections:
 # |site|year|ALFL|AMBI|AMCO|AMCR|AMKE|AMPI|...|
-
-load("/Volumes/Projects/harvestSeverity_birds/0_data/manual/bird/bd_wide_2023-03-20.rData")
-
-##////////////////////////////////////////////////////////////////
+detection_data <- abundance_data[, !(names(abundance_data) %in% c("latitude", "longitude", "species_code"))]
 
 #Set up traits dataframe ----
 ##Keep only traits of interest----
-bd_tr<-bd_traits_full%>%
-  dplyr::select(c("SPEC", "Diet.Inv", "Diet.Vend",
+trait_data<-trait_data_select_birds%>%
+  dplyr::select(c("English", "Diet.Inv", "Diet.Vend",
                   "Diet.Vect", "Diet.Vfish", "Diet.Vunk",
                   "Diet.Scav", "Diet.Fruit", "Diet.Nect",
                   "Diet.Seed", "Diet.PlantO", "Diet.5Cat",
@@ -61,7 +86,8 @@ bd_tr<-bd_traits_full%>%
                   "ForStrat.understory", "ForStrat.midhigh", "ForStrat.canopy",
                   "ForStrat.aerial", "PelagicSpecialist", "Nocturnal",
                   "BodyMass.Value"))%>%
-  arrange(SPEC)
+  arrange(English)
+names(trait_data)[names(trait_data) == "English"] <- "Species_common"
 
 ## set species codes as rownames in trait dataframe----
 traits<- bd_tr[,-1]

@@ -1,4 +1,6 @@
 0_Data/
+2_Outputs/
+*.json
 brainstorm_files/
 README.md
 Threshold.R

@@ -16,6 +16,7 @@ library(mgcv)
 library(hillR)
 library(patchwork)
 
+install.packages("hillR")
 # library(cmdstanr)
 # PATH_TO_CMDSTAN <- "C:/Users/ilebe/.cmdstan/cmdstan-2.31.0" # nolint
 # set_cmdstan_path(PATH_TO_CMDSTAN)
@@ -27,7 +28,7 @@ library(patchwork)
 birds_abund <- read_csv(file.path("0_Data/Processed", "community_abundance_by_location.csv"))
 # head(birds_abund)
 # names(birds_abund)
-
+getwd()
 covariates <-read_csv("0_Data/Processed/merged_covariates.csv")
 
 # __________________________________ Data Exploration __________________________________
@@ -36,6 +37,10 @@ covariates <-read_csv("0_Data/Processed/merged_covariates.csv")
 # Identify the columns with the four-letter codes
 # Assuming these are all the columns after 'longitude'
 code_columns <- names(birds_abund)[5:ncol(birds_abund)]
+
+# Add a patch presence column
+covariates <- covariates %>%
+      mutate(Patch = ifelse(RETN_m2 > 0, 1, 0))
 
 birds <- birds_abund
 # Apply the transformation
@@ -103,8 +108,12 @@ birds_many_glm_coefs |>
 
 # Calculate the Shannon diversity index
 community_matrix <- birds_abund[, 6:ncol(birds_abund)]
-community_matrix
+
 shannon_indices <- diversity(community_matrix, index = "shannon")
+birds_abund$Shannon <- shannon_indices
+View(birds_abund)
+
+birds_abund$ESR <- exp(birds_abund$Shannon)
 shannon_indices
 birds_abund$Shannon <- shannon_indices
 head(birds_abund)
@@ -113,7 +122,7 @@ print(shannon_indices)
 
 names(covariates)
 selected_covariates <- covariates[, c("location", "percent_decid", "percent_mixed",
-                                        "percent_spruce", "percent_pine",
+                                        "percent_spruce", "percent_pine", "Patch",
                                         "RETN_m2", "RETN_perimeter_m",
                                         "Year_since_logging", "Veg_cat")]
 birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location", all = FALSE)
@@ -128,15 +137,26 @@ predictors_to_scale <- c('RETN_m2', 'Year_since_logging')
 birds_abund_covs_noLargePatches[, predictors_to_scale] <- lapply(birds_abund_covs_noLargePatches[, predictors_to_scale], function(x) {
   (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
 })
-
+View(birds_abund_covs_noLargePatches)
 ggplot(birds_abund_covs_noLargePatches, aes(x = RETN_m2)) +
   geom_histogram()
 
-diversity_glm <- glmmTMB(Shannon ~ RETN_m2 + Year_since_logging  + Veg_cat
+diversity_glm <- glmmTMB(ESR ~ RETN_m2 + Year_since_logging  + Veg_cat
                                     + (1|location),
-                        data = birds_abund_covs,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+diversityIndex_glm <- glmmTMB(Shannon ~ RETN_m2 + Year_since_logging  + Veg_cat
+                                    + (1|location),
+                        data = birds_abund_covs_noLargePatches,
                         family = gaussian)
 summary(diversity_glm)
+summary(diversityIndex_glm)
+
+gam_ESR <- gam(ESR ~ s(Year_since_logging) + RETN_m2,
+                    data = birds_abund_covs_noLargePatches,
+                    family=gaussian)    
+summary(gam_ESR)
+plot(gam_ESR)
 plot(simulateResiduals(diversity_glm))
 
 par(mfrow=c(1,1))
@@ -170,7 +190,7 @@ plot(corrXY, main='spatial model')
 
 #5.1 Prepare the data-----
 selected_covariates <- covariates[, c("location", "percent_decid", "percent_mixed",
-                                        "percent_spruce", "percent_pine",
+                                        "percent_spruce", "percent_pine", "Patch",
                                         "RETN_m2", "RETN_perimeter_m",
                                         "Year_since_logging", "Veg_cat")]
 birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location", all = FALSE)
@@ -178,8 +198,8 @@ birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location", all
 
 birds_abund_covs_noLargePatches <- birds_abund_covs |>
   filter(RETN_m2 < 12000)
-
-species_data <- birds_abund_covs_noLargePatches[, 14:ncol(birds_abund_covs_noLargePatches)]  # Adjust the column indices as per your data
+View(birds_abund_covs_noLargePatches)
+species_data <- birds_abund_covs_noLargePatches[, 15:ncol(birds_abund_covs_noLargePatches)]  # Adjust the column indices as per your data
 
 birds_abund_covs_noLargePatches$richness <- hill_taxa(comm= species_data, q=0)
 birds_abund_covs_noLargePatches$evenness <- hill_taxa(comm= species_data, q=2)
@@ -201,16 +221,33 @@ community_covs_scaled[, predictors_to_scale] <- lapply(community_covs_scaled[, p
 })
 write.csv(community_covs_scaled, file.path("0_Data/Processed", "Community_scaled.csv"))
 comm_richness <- glmmTMB(richness ~ percent_decid + percent_pine + 
-                            percent_spruce +
+                            percent_spruce + Patch +
                             RETN_m2 + Year_since_logging+ I(Year_since_logging^2),
                     data = community_covs_scaled,
                     family=poisson)
 summary(comm_richness)
+AIC(comm_richness)
+
+comm_richness2 <- glmmTMB(richness ~ percent_decid + percent_pine + 
+                            percent_spruce +
+                            RETN_m2*Year_since_logging,
+                    data = community_covs_scaled,
+                    family=poisson)
+summary(comm_richness2)
+AIC(comm_richness2)
+
+comm_richness3 <- glmmTMB(richness ~ percent_decid + percent_pine + 
+                            percent_spruce +
+                            Patch*Year_since_logging + RETN_m2,
+                    data = community_covs_scaled,
+                    family=poisson)
+summary(comm_richness3)
+AIC(comm_richness3)
 
 community_covs_scaled$Veg_cat <- as.factor(community_covs_scaled$Veg_cat)
 # birds_abund_covs_noLargePatches$Veg_cat <- relevel(birds_abund_covs_noLargePatches$Veg_cat, ref = "n")
 
-comm_richness_interact <- glmmTMB(richness ~ RETN_m2 * Year_since_logging * Veg_cat,
+comm_richness_interact <- glmmTMB(richness ~ Patch * Year_since_logging + Year_since_logging:Veg_cat,
                     data = community_covs_scaled,
                     family=poisson)                    
 summary(comm_richness_interact)
