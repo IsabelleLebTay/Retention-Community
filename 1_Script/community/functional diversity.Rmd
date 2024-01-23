@@ -44,11 +44,15 @@ trait_data_all_birds <- elton_birds
 ### Create dataframe where rows are indexed by species, columns are traits----
 # 1. create list from abundance columns
 # Extract species names starting from the 6th column
-species_names <- colnames(abundance_data)[6:length(colnames(abundance_data))]
+my_species <- colnames(abundance_data)[6:length(colnames(abundance_data))]
+
+# No Pacific Wren data in the trait data, also only 1 detection
+my_species <- my_species[my_species != "Pacific Wren"]
+abundance_data <- abundance_data %>% select(-c("Pacific Wren", "Wilson's Snipe"))
 
 # Filter trait data for desired birds
 trait_data_select_birds <- trait_data_all_birds |>
-                              filter(English %in% species_names)
+                              filter(English %in% my_species)
 
 species_found <- trait_data_select_birds$English
 # Find items in list1 that are not in list2
@@ -68,17 +72,16 @@ print(missing_in_list1)
 #|species|diet.inv|diet.vend|diet.vect|diet.seed|forestStrat.groud|
 # trait_dataframe <- trait_data_select_birds %>%
 #                     select(English, Diet.Inv, Diet.Vend, Diet.Vect, Diet.Seed, ForStrat.ground)
-names(trait_dataframe)[names(trait_dataframe) == "English"] <- "Species_common"
-View(detection_data)
+names(trait_data_select_birds)[names(trait_data_select_birds) == "English"] <- "Species_common"
 
 ### Load dataframe with site level detection data----
 # |site|year|ALFL|AMBI|AMCO|AMCR|AMKE|AMPI|...|
 detection_data <- abundance_data[, !(names(abundance_data) %in% c("latitude", "longitude", "species_code"))]
-
+# View(detection_data)
 #Set up traits dataframe ----
 ##Keep only traits of interest----
 trait_data<-trait_data_select_birds%>%
-  dplyr::select(c("English", "Diet.Inv", "Diet.Vend",
+  dplyr::select(c("Species_common", "Diet.Inv", "Diet.Vend",
                   "Diet.Vect", "Diet.Vfish", "Diet.Vunk",
                   "Diet.Scav", "Diet.Fruit", "Diet.Nect",
                   "Diet.Seed", "Diet.PlantO", "Diet.5Cat",
@@ -86,33 +89,186 @@ trait_data<-trait_data_select_birds%>%
                   "ForStrat.understory", "ForStrat.midhigh", "ForStrat.canopy",
                   "ForStrat.aerial", "PelagicSpecialist", "Nocturnal",
                   "BodyMass.Value"))%>%
-  arrange(English)
-names(trait_data)[names(trait_data) == "English"] <- "Species_common"
+  arrange(trait_data_select_birds)
+# names(trait_data)[names(trait_data) == "English"] <- "Species_common"
 
-## set species codes as rownames in trait dataframe----
-traits<- bd_tr[,-1]
-rownames(traits) <- bd_tr[,1]
+## If you need to, set species codes as rownames in trait dataframe----
+#View(trait_data)
+#traits<- bd_tr[,-1]
+#rownames(traits) <- bd_tr[,1]
 
 ##////////////////////////////////////////////////////////////////
 
 # Setup detection matrix----
-abund<-x
+# abund<-x
 ##remove site and year fields----
 #you should have a dataframe with only species detection columns. E.g:
 #|ALFL|AMBI|AMCO|AMCR|AMKE|AMPI|...|
-abund1<-x[-c(1:2)]
+# Get rid of datetime
+abund1<-detection_data[-c(2:2)]
+View(abund1)
+# Set sites names as the row names
+# Set row names
+abund1 <- as.data.frame(abund1)
+rownames(abund1) <- abund1$location
+
+# Remove the original column
+abund1$location <- NULL
 
 ##covert dataframe to matrix----
-abund2<-data.matrix(head(abund1))
+# abund2<-data.matrix(head(abund1))
+# abund2 <- as.matrix(abund1)
+abund2 <- abund1[, order(colnames(abund1))]
+# Get rid of trait speices dupplicates
+trait_data <- trait_data %>% distinct(Species_common, .keep_all = TRUE)
 
+# Reorder alphabetically the species
+trait_data <- trait_data[order(trait_data$Species_common, decreasing = FALSE), ]
+# View(trait_data)
+
+species_in_traits <- trait_data$Species_common
+species_in_detections <- colnames(abund2)
+# Find items in list1 that are not in list2
+missing_in_detections <- setdiff(species_in_traits, species_in_detections)
+missing_in_detections
+# Find items in list2 that are not in list1 (if needed)
+missing_in_traits <- setdiff(species_in_detections, species_in_traits)
+missing_in_traits
+# colnames(abund2)
+# View(trait_data2)
 ##////////////////////////////////////////////////////////////////
 
 #Calculate functional diversity metrics with FD:dbFD----
 ## Calculate functional diversity metrics with FD:dbFD----
-fd<- FD::dbFD(traits, abund2)
+View(trait_data)
+View(abund2)
+nrow(trait_data)
+ncol(abund2)
 
+# Tests
+
+# write.csv(abund2, "0_Data/Processed/abundance.csv")
+# write.csv(trait_data, "0_Data/Processed/trait_test.csv")
+
+# abund_test <- read_csv("0_Data/Processed/abund test.csv")
+# trait_test <- read_csv("0_Data/Processed/trait_test.csv")
+View(abund_test)
+View(trait_test)
+# Convert tibble to dataframe
+trait_data <- as.data.frame(trait_data)
+# abund_test <- as.matrix(abund_test)
+# Set row names
+rownames(trait_data) <- trait_data$Species_common
+
+# Remove the original column, if desired
+trait_data$Species_common <- NULL
+
+# No sites can't have a single species
+rows_with_all_zeros <- apply(abund2, 1, function(x) all(x == 0))
+which(rows_with_all_zeros)
+
+# Find rows where not all values are 1
+rows_not_all_zeros <- apply(abund2, 1, function(x) !all(x == 0))
+
+# Subset the dataframe to keep only those rows
+abund_no_empty_sites <- abund2[rows_not_all_zeros, ]
+abund_no_empty_sites <- as.matrix(abund_no_empty_sites)
+View(trait_data)
+write.csv(abund_no_empty_sites, "0_Data/Processed/abundance_no_missing_detections.csv")
+# Dataframes need to be identical and ordered alphabetically
+
+
+fd<- FD::dbFD(trait_data, abund_no_empty_sites)
+# fd<- FD::dbFD(trait_test, abund_test)
+head(fd, n=5)
+?head()
 ## Bind functional diversity metrics with station data
-bd_funcDiv<-cbind(abund[1:2], fd)
-save(bd_funcDiv, file=paste0("0_data/manual/bird/bd_FuncDiv_", Sys.Date(), ".rData"))
+fd_dataframe <- as.data.frame(fd)
+# bd_funcDiv<-cbind(abund_no_empty_sites[1:1], fd_dataframe)
+
+View(fd_dataframe)
+write.csv(fd_dataframe, "0_Data/Processed/functional_diversity.csv" )
+
+```
+
+Now we have the function dicversity metrics, we can start doing some stats on it.
+
+```R
+# How many sites have less than 3 species?
+fd_df <- read_csv("0_Data/Processed/functional_diversity.csv")
+covariates <- read_csv("0_Data/Processed/merged_covariates.csv")
+
+covariates <- covariates %>% select(-c("TEWA", "OSFL", "RCKI", "YRWA", "REVI", "WTSP"))
+names(fd_df)[1] <- "location"
+
+# Filter the sites in covariates so they match with fd_df
+correct_sites <- fd_df$location
+covariates_matching_sites <- covariates |>
+                                filter(location %in% correct_sites)
+
+nrow(covariates_matching_sites)
+nrow(fd_df)
+
+# 37 sites do not have any covariate data. These are likely becuase they didn't make the cut in terms of site quality.
+# Exclude the sites that are not in covariate
+sites_with_covs <- covariates_matching_sites$location
+funcDiv_correct_sites <- fd_df |>
+                          filter(location %in% sites_with_covs)
+nrow(funcDiv_correct_sites)
+nrow(covariates_matching_sites)
+
+# Now these two are mathcing in length
+# Reset the names os it is clear
+Covariates <- covariates_matching_sites
+FuncDiv <- funcDiv_correct_sites
+
+# Avoid duplication in column names
+FuncDiv_Covs <- cbind(Covariates, FuncDiv[, !names(FuncDiv) %in% names(Covariates)])
+write.csv(FuncDiv_Covs, "0_Data/Processed/functional_diversity_and_covs.csv")
+View(FuncDiv_Covs)
+# How many sites have less than 3 species?
+?dbFD()
+
+# nbsp: number of species in each community
+FuncDiv |>
+      filter(nbsp <= 2)
+
+ggplot(FuncDiv_Covs, aes(x = Year_since_logging, y = nbsp, color = Veg_cat)) +
+  geom_point() +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Year Since Logging", y = "Number of Bird Species (nbsp)")
+
+ggplot(FuncDiv_Covs, aes(x = RETN_m2, y = nbsp, color = Veg_cat)) +
+  geom_point() +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Patch area", y = "Number of Bird Species (nbsp)")
+
+ggplot(FuncDiv_Covs, aes(x = Year_since_logging, y = FDiv, color = Veg_cat)) +
+  geom_point() +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Year Since Logging", y = "Number of Bird Species (nbsp)")
+
+ggplot(FuncDiv_Covs, aes(x = RETN_m2, y = FDiv, color = Veg_cat)) +
+  geom_point() +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Patch area", y = "Number of Bird Species (nbsp)")
+
+ggplot(FuncDiv_Covs, aes(x = Year_since_logging, y = FEve, color = Veg_cat)) +
+  geom_point() +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Year Since Logging", y = "Number of Bird Species (nbsp)")
+
+ggplot(FuncDiv_Covs, aes(x = RETN_m2, y = FEve, color = Veg_cat)) +
+  geom_point() +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Patch area", y = "Number of Bird Species (nbsp)")
+
+
 
 ```
