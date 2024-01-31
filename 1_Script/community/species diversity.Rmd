@@ -1,7 +1,15 @@
-# Community
+---
+title: calculate_species_diversity
+date: 2024
+type: reference
+tags: " #code/R "
+description: "Code for calculating species diversity in R"
+---
+**Original Script by ILT**
 
-#1. Load packages----
+# Load packages
 
+```R
 library(tidyverse)
 library(vegan)
 library(readr)
@@ -15,17 +23,22 @@ library(dplyr)
 library(mgcv)
 library(hillR)
 library(patchwork)
-
+library(car)
 # install.packages("hillR")
 # library(cmdstanr)
 # PATH_TO_CMDSTAN <- "C:/Users/ilebe/.cmdstan/cmdstan-2.31.0" # nolint
 # set_cmdstan_path(PATH_TO_CMDSTAN)
 # cmdstan_path()
 # cmdstan_version()
+```
 
-
-#2 Read the CSV file----
+# Set up data
+```R
 birds_abund <- read_csv(file.path("0_Data/Processed", "community_abundance_by_location.csv"))
+# get rid of this site
+birds_abund <- birds_abund |>
+    filter(location != "H-RS-12-8")
+
 # head(birds_abund)
 # names(birds_abund)
 getwd()
@@ -34,8 +47,47 @@ dist_to_forest <- read_csv("0_Data/Processed/retn dist to nearest forest.csv")
 dist_to_forest <- select(dist_to_forest, location, Dist_near_forest)
 covariates <- merge(covariates, dist_to_forest, by = "location")
 
-# __________________________________ Data Exploration __________________________________
 
+# Calculate the Shannon diversity index
+community_matrix <- birds_abund[, 6:ncol(birds_abund)]
+
+shannon_indices <- diversity(community_matrix, index = "shannon")
+birds_abund$Shannon <- shannon_indices
+View(birds_abund)
+
+birds_abund$ESR <- exp(birds_abund$Shannon)
+shannon_indices
+birds_abund$Shannon <- shannon_indices
+head(birds_abund)
+# Display the results
+print(shannon_indices)
+
+names(covariates)
+
+# Add amount edge
+covariates$Edge <- ifelse(covariates$RETN_m2 != 0 & covariates$RETN_perimeter_m !=0, 
+                            covariates$RETN_m2 / covariates$RETN_perimeter_m, 0)
+covariates$Year_since_logging2 <- covariates$Year_since_logging ^2
+
+selected_covariates <- covariates[, c("location", "percent_decid", "percent_mixed",
+                                        "percent_spruce", "percent_pine", "Patch",
+                                        "RETN_m2", "RETN_perimeter_m",
+                                        "Year_since_logging", "Veg_cat", 
+                                        "Dist_near_forest", "Edge", "Year_since_logging2")]
+birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location")
+names(birds_abund_covs)
+nrow(birds_abund_covs)
+birds_abund_covs_noLargePatches <- birds_abund_covs |>
+  filter(RETN_m2 < 12000)
+nrow(birds_abund_covs_noLargePatches)
+predictors_to_scale <- c('RETN_m2', 'Year_since_logging', "RETN_perimeter_m", "Edge", "Year_since_logging2", "Dist_near_forest")
+
+# Apply MinMax scaling to each predictor
+birds_abund_covs_noLargePatches[, predictors_to_scale] <- lapply(birds_abund_covs_noLargePatches[, predictors_to_scale], function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+})
+
+# ___________________________Data preped, skip to GLMs_________________________
 #3 Logitic regressions on presence/absence----
 # Identify the columns with the four-letter codes
 # Assuming these are all the columns after 'longitude'
@@ -60,6 +112,10 @@ ggplot(merged_data, aes(x = RETN_m2)) +
 pres_abs_covs_noLargePatches <- merged_data |>
   filter(RETN_m2 < 12000)
 
+```
+
+# Data Exploration
+```R
 # Pivot the data to long format
 birds_data_long <- pres_abs_covs_noLargePatches %>%
   pivot_longer(ALFL:PAWR, names_to = "spp", values_to = "presabs")
@@ -106,52 +162,39 @@ birds_many_glm_coefs |>
   geom_histogram(binwidth = .5) + 
   facet_wrap(~term, scales = "free")
 
-# __________________________________ Diversity Metrics __________________________________
-#4 Shannon Diversity----
-
-# Calculate the Shannon diversity index
-community_matrix <- birds_abund[, 6:ncol(birds_abund)]
-
-shannon_indices <- diversity(community_matrix, index = "shannon")
-birds_abund$Shannon <- shannon_indices
-View(birds_abund)
-
-birds_abund$ESR <- exp(birds_abund$Shannon)
-shannon_indices
-birds_abund$Shannon <- shannon_indices
-head(birds_abund)
-# Display the results
-print(shannon_indices)
-
-names(covariates)
-
-# Add amount edge
-covariates$Edge <- ifelse(covariates$RETN_m2 != 0 & covariates$RETN_perimeter_m !=0, 
-                            covariates$RETN_m2 / covariates$RETN_perimeter_m, 0)
-covariates$Year_since_logging2 <- covariates$Year_since_logging ^2
-
-selected_covariates <- covariates[, c("location", "percent_decid", "percent_mixed",
-                                        "percent_spruce", "percent_pine", "Patch",
-                                        "RETN_m2", "RETN_perimeter_m",
-                                        "Year_since_logging", "Veg_cat", 
-                                        "Dist_near_forest", "Edge", "Year_since_logging2")]
-birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location", all = FALSE)
-names(birds_abund_covs)
-
-birds_abund_covs_noLargePatches <- birds_abund_covs |>
-  filter(RETN_m2 < 12000)
-
-
-
-predictors_to_scale <- c('RETN_m2', 'Year_since_logging', "RETN_perimeter_m", "Edge", "Year_since_logging2", "Dist_near_forest")
-
-# Apply MinMax scaling to each predictor
-birds_abund_covs_noLargePatches[, predictors_to_scale] <- lapply(birds_abund_covs_noLargePatches[, predictors_to_scale], function(x) {
-  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
-})
-View(birds_abund_covs_noLargePatches)
 ggplot(birds_abund_covs_noLargePatches, aes(x = RETN_m2)) +
-  geom_histogram()
+  geom_histogram()  
+```
+
+
+# Collinearity, data distribution
+```R 
+# Assuming your_data is your dataframe and it contains only predictor variables
+covs_for_cor_test <- covariates[, c("Patch",
+                                        "RETN_m2",
+                                        "Year_since_logging", 
+                                        "Dist_near_forest", "Edge", "Year_since_logging2")]
+correlation_matrix <- cor(covs_for_cor_test)
+View(correlation_matrix)
+
+library(corrplot)
+corrplot(correlation_matrix, method = "circle")
+
+hist(birds_abund_covs_noLargePatches$richness)
+mean(birds_abund_covs_noLargePatches$richness)
+sd(birds_abund_covs_noLargePatches$richness)
+hist(rlnorm(372, log(7.07), log(3.07)))
+```
+
+# Exponential Shannon index
+```R
+#4 Shannon Diversity----
+# Distance to nearest forest is significant and negative, so I'll include that in all the models
+diversity_glm0 <- glmmTMB(ESR ~ RETN_m2 + Year_since_logging  + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(diversity_glm0)
+AIC(diversity_glm0) # 1819.405
 
 diversity_glm1 <- glmmTMB(ESR ~ RETN_m2 + Year_since_logging  + Veg_cat,
                         data = birds_abund_covs_noLargePatches,
@@ -159,45 +202,83 @@ diversity_glm1 <- glmmTMB(ESR ~ RETN_m2 + Year_since_logging  + Veg_cat,
 summary(diversity_glm1)
 AIC(diversity_glm1) #[1] 1823.513
 
-diversity_glm2 <- glmmTMB(ESR ~ Edge + Year_since_logging  + Veg_cat,
+diversity_glm2 <- glmmTMB(ESR ~ Edge + Year_since_logging  + Veg_cat + Dist_near_forest,
                         data = birds_abund_covs_noLargePatches,
                         family = gaussian)
 summary(diversity_glm2)
-AIC(diversity_glm2) # 1823.381
+AIC(diversity_glm2) # 1819.42
 
-diversity_glm3 <- glmmTMB(ESR ~ RETN_m2 + Year_since_logging,
+diversity_glm2b <- glmmTMB(ESR ~ RETN_m2 + Year_since_logging  + Veg_cat + Dist_near_forest,
                         data = birds_abund_covs_noLargePatches,
                         family = gaussian)
-summary(diversity_glm3)
-AIC(diversity_glm3) # 1819.851
+summary(diversity_glm2b)
+AIC(diversity_glm2b) # 1819.405
 
-diversity_glm4 <- glmmTMB(ESR ~ Edge + Patch*Year_since_logging,
+# Best AIC so far
+diversity_glm3a <- glmmTMB(ESR ~ RETN_m2 + Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(diversity_glm3a)
+AIC(diversity_glm3a) # 1815.462
+r.squaredGLMM(diversity_glm3a) # 0.04283247
+plot(simulateResiduals(diversity_glm3a)) # Residuals are good.
+
+# Same AIC, also top model
+diversity_glm3b <- glmmTMB(ESR ~ Edge + Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(diversity_glm3b)
+AIC(diversity_glm3b) # 1815.48
+r.squaredGLMM(diversity_glm3b) # 0.0428
+plot(simulateResiduals(diversity_glm3b)) # Residuals are good.
+
+# Same AIC, top model
+diversity_glm3aa <- glmmTMB(ESR ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(diversity_glm3aa)
+AIC(diversity_glm3aa) # 1815.335
+r.squaredGLMM(diversity_glm3aa) # 0.04829
+plot(simulateResiduals(diversity_glm3aa)) # Resids good, some deviance but not significant
+
+# Same AIC, top model
+diversity_glm3bb <- glmmTMB(ESR ~ Edge + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(diversity_glm3bb)
+AIC(diversity_glm3bb) # 1815.398
+r.squaredGLMM(diversity_glm3bb) # 0.04829
+plot(simulateResiduals(diversity_glm3bb)) # Resids good, some deviance but not significant
+
+diversity_glm4 <- glmmTMB(ESR ~ Edge + Patch*Year_since_logging + Dist_near_forest,
                         data = birds_abund_covs_noLargePatches,
                         family = gaussian)
 summary(diversity_glm4)
-AIC(diversity_glm4) # 1823.353
+AIC(diversity_glm4) # 1819.052
 
-diversity_glm5 <- glmmTMB(ESR ~ RETN_m2 + Patch*Year_since_logging,
+diversity_glm5 <- glmmTMB(ESR ~ RETN_m2 + Patch*Year_since_logging + Dist_near_forest,
                         data = birds_abund_covs_noLargePatches,
                         family = gaussian)
 summary(diversity_glm5)
-AIC(diversity_glm5) #  1823.689
+AIC(diversity_glm5) #  1819.208
 
-diversity_glm6 <- glmmTMB(ESR ~ RETN_m2 + Patch*Year_since_logging + Patch*Veg_cat,
+diversity_glm6 <- glmmTMB(ESR ~ RETN_m2 + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest,
                         data = birds_abund_covs_noLargePatches,
                         family = gaussian)
 summary(diversity_glm6)
-AIC(diversity_glm6) # 1822.375
+AIC(diversity_glm6) # 1819.019
 
-diversity_glm6 <- glmmTMB(ESR ~ Edge + Patch*Year_since_logging + Patch*Veg_cat,
+diversity_glm6 <- glmmTMB(ESR ~ Edge + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + poly(Year_since_logging2),
                         data = birds_abund_covs_noLargePatches,
                         family = gaussian)
 summary(diversity_glm6)
-AIC(diversity_glm6) # 1821.928
+AIC(diversity_glm6) # 1818.742
 
 ```
 
 
+# Shannon diveristy index
+```R
 diversityIndex_glm <- glmmTMB(Shannon ~ RETN_m2 + Year_since_logging  + Veg_cat,
                         data = birds_abund_covs_noLargePatches,
                         family = gaussian)
@@ -236,67 +317,251 @@ corrXY <- spline.correlog(birds_abund_covs$longitude.y, birds_abund_covs$latitud
 par(mfrow=c(1,2))
 plot(corr, main='null model')
 plot(corrXY, main='spatial model')
+```
 
+# Hill taxonomic diversity
+
+## Testing models
+```R
 #5 Richness and evenness----
 # hill_taxa (q=0) will give richness
+species_data <- birds_abund_covs_noLargePatches[, 18:(ncol(birds_abund_covs_noLargePatches)-2)]  # Adjust the column indices as per your data
 
-#5.1 Prepare the data-----
-selected_covariates <- covariates[, c("location", "percent_decid", "percent_mixed",
-                                        "percent_spruce", "percent_pine", "Patch",
-                                        "RETN_m2", "RETN_perimeter_m",
-                                        "Year_since_logging", "Veg_cat")]
-birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location", all = FALSE)
-# names(birds_abund_covs)
-
-birds_abund_covs_noLargePatches <- birds_abund_covs |>
-  filter(RETN_m2 < 12000)
-View(birds_abund_covs_noLargePatches)
-species_data <- birds_abund_covs_noLargePatches[, 15:ncol(birds_abund_covs_noLargePatches)]  # Adjust the column indices as per your data
-
+# Hill taxonomic indices
 birds_abund_covs_noLargePatches$richness <- hill_taxa(comm= species_data, q=0)
 birds_abund_covs_noLargePatches$evenness <- hill_taxa(comm= species_data, q=2)
-birds_abund_covs_noLargePatches$evenness
 
 ## Cannot have an evenness when there are no species
 community_covs_positives <- birds_abund_covs_noLargePatches |>
                                             filter(evenness != "Inf")
+community_covs_positives$Veg_cat <- as.factor(community_covs_positives$Veg_cat)
+birds_abund_covs_noLargePatches$Veg_cat <- as.factor(birds_abund_covs_noLargePatches$Veg_cat)
 # species_data$BTNW
 # CAWA <-birds_abund |>
 #       filter(CAWA > 0)
-# View(community_covs_scaled)
+View(birds_abund_covs_noLargePatches)
 
-# Scale the predictors
-community_covs_scaled <- community_covs_positives
-predictors_to_scale <- c('RETN_m2', 'Year_since_logging')
-community_covs_scaled[, predictors_to_scale] <- lapply(community_covs_scaled[, predictors_to_scale], function(x) {
-  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
-})
-write.csv(community_covs_scaled, file.path("0_Data/Processed", "Community_scaled.csv"))
-comm_richness <- glmmTMB(richness ~ percent_decid + percent_pine + 
-                            percent_spruce + Patch +
-                            RETN_m2 + Year_since_logging+ I(Year_since_logging^2),
-                    data = community_covs_scaled,
-                    family=poisson)
-summary(comm_richness)
-AIC(comm_richness)
+# write.csv(community_covs_positives, file.path("0_Data/Processed", "Community_scaled.csv")
+# Did it with the birds_abund_covs_noLargePatches df by mistake, but it shouldn't matter too much. Will have to switch for evenness
+hill_rich0 <- glmmTMB(richness ~ RETN_m2 + Year_since_logging,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich0)
+AIC(hill_rich0) # 1918.38
 
-comm_richness2 <- glmmTMB(richness ~ percent_decid + percent_pine + 
-                            percent_spruce +
-                            RETN_m2*Year_since_logging,
-                    data = community_covs_scaled,
-                    family=poisson)
-summary(comm_richness2)
-AIC(comm_richness2)
+hill_rich1 <- glmmTMB(richness ~ RETN_m2 + Year_since_logging  + Veg_cat,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich1)
+AIC(hill_rich1) # 1919.529
 
-comm_richness3 <- glmmTMB(richness ~ percent_decid + percent_pine + 
-                            percent_spruce +
-                            Patch*Year_since_logging + RETN_m2,
-                    data = community_covs_scaled,
-                    family=poisson)
-summary(comm_richness3)
-AIC(comm_richness3)
+hill_rich2 <- glmmTMB(richness ~ RETN_m2 + Year_since_logging  + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich2)
+AIC(hill_rich2) #[1] 1908.43
 
-community_covs_scaled$Veg_cat <- as.factor(community_covs_scaled$Veg_cat)
+hill_rich2b <- glmmTMB(richness ~ Edge + Year_since_logging  + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich2b)
+AIC(hill_rich2b) #  1908.471
+
+# Year_since_logging2 marginally significant
+hill_rich3 <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + poly(Year_since_logging2) + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich3)
+AIC(hill_rich3) # 1907.614
+r.squaredGLMM(hill_rich3) # R2c 0.08082584
+
+hill_rich3b <- glmmTMB(richness ~ Edge + Year_since_logging + poly(Year_since_logging2) + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich3b)
+AIC(hill_rich3b) # 1907.699
+
+hill_rich4 <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich4)
+AIC(hill_rich4) #  1907.088
+# r.squaredGLMM(diversity_glm3a) # 0.04283247
+# plot(simulateResiduals(diversity_glm3a)) # Residuals are good.
+
+hill_rich4b <- glmmTMB(richness ~ Edge + Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich4b)
+AIC(hill_rich4b) # 1907.13
+# r.squaredGLMM(diversity_glm3b) # 0.0428
+# plot(simulateResiduals(diversity_glm3b)) # Residuals are good.
+
+# New best!
+hill_rich5 <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich5)
+AIC(hill_rich5) # 1905.764
+r.squaredGLMM(hill_rich5) # lognormal R2m = 0.07141641
+plot(simulateResiduals(hill_rich5)) # Issues with residuals
+
+# Same AIC, top model
+hill_rich5b <- glmmTMB(richness ~ Edge + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich5b)
+AIC(hill_rich5b) #1905.881
+r.squaredGLMM(hill_rich5b) # lognormal R2m = 0.07099881
+plot(simulateResiduals(hill_rich5b)) # Issues with residuals
+
+hill_rich6 <- glmmTMB(richness ~ Edge + Patch*Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich6)
+AIC(hill_rich6) # 1910.68
+
+hill_rich6b <- glmmTMB(richness ~ RETN_m2 + Patch*Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich6b)
+AIC(hill_rich6b) #  1910.873
+
+# Better R2
+hill_rich7a <- glmmTMB(richness ~ RETN_m2 + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7a)
+AIC(hill_rich7a) # 1905.66
+r.squaredGLMM(hill_rich7a) # lognormal R2m = 0.10408461
+plot(simulateResiduals(hill_rich7a)) # Minor dispersion issues
+
+# Best R2 so far
+hill_rich7aa <- glmmTMB(richness ~ RETN_m2 + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7aa)
+AIC(hill_rich7aa) # 1904.696
+r.squaredGLMM(hill_rich7aa) # lognormal R2m = 0.11262006
+plot(simulateResiduals(hill_rich7aa)) # Minor dispersion issues
+
+# Smae AIC as top model
+hill_rich7b <- glmmTMB(richness ~ Edge + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7b)
+AIC(hill_rich7b) # 1905.269
+r.squaredGLMM(hill_rich7b) # lognormal R2m = 0.10504981
+plot(simulateResiduals(hill_rich7b)) # Minor dispersion issues
+
+# Even better R2. This will be the top model
+hill_rich7bb <- glmmTMB(richness ~ Edge + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7bb)
+AIC(hill_rich7bb) # 1904.439
+r.squaredGLMM(hill_rich7bb) # lognormal R2m = 0.1070286
+plot(simulateResiduals(hill_rich7bb)) # Dispersion 
+```
+
+## Camparing top models
+```R
+# This is the best model
+hill_rich5re <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich5re)
+AIC(hill_rich5re) # 1896.409
+r.squaredGLMM(hill_rich5re) # delta R2m = 0.2573984
+plot(simulateResiduals(hill_rich5re)) # Residuals ok
+
+hill_rich5bre <- glmmTMB(richness ~ Edge + Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich5bre)
+AIC(hill_rich5bre) #1896.516
+r.squaredGLMM(hill_rich5bre) # delat R2c = 0.2571836
+plot(simulateResiduals(hill_rich5bre)) # Residuals ok
+
+# Worse AIC
+hill_rich7are <- glmmTMB(richness ~ RETN_m2 + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7a)
+AIC(hill_rich7are) # 1899.086
+r.squaredGLMM(hill_rich7are) # delta R2c = 0.2576462
+plot(simulateResiduals(hill_rich7are)) # Residuals ok
+
+# Worse AIC
+hill_rich7aare <- glmmTMB(richness ~ RETN_m2 + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + poly(Year_since_logging2) +(1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7aare)
+AIC(hill_rich7aare) # 1898.601
+r.squaredGLMM(hill_rich7aare) # delta R2c = 0.2597047
+plot(simulateResiduals(hill_rich7aare)) # Residuals ok
+
+# worse AIC
+hill_rich7bre <- glmmTMB(richness ~ Edge + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7bre)
+AIC(hill_rich7bre) # 1898.772
+r.squaredGLMM(hill_rich7bre) # delta R2c = 0.2595580
+plot(simulateResiduals(hill_rich7bre)) # Residuals ok
+
+# Even better R2. This will be the top model
+hill_rich7bbre <- glmmTMB(richness ~ Edge + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + poly(Year_since_logging2) +(1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7bbre)
+AIC(hill_rich7bbre) # 1898.398
+r.squaredGLMM(hill_rich7bbre) # delta R2c = 0.2595580
+plot(simulateResiduals(hill_rich7bbre)) # Residuals ok 
+
+# Using this model, which is the most promising insofar as the residuals are behaving,
+# we will test for spatial autocorrelation
+hill_rich7bb_resids <- residuals(hill_rich7bb)
+
+hist(hill_rich7bb_resids)
+mean(hill_rich7bb_resids)
+sd(hill_rich7bb_resids)
+hist(rlnorm(372, mean(hill_rich7bb_resids), sd(hill_rich7bb_resids)))
+
+divers_GAm <- gam(hill_rich7bb_resids ~ s(longitude, latitude), data = birds_abund_covs_noLargePatches, family = gaussian)
+plot(divers_GAm)
+summary(divers_GAm) # maybe some spatial correlation, Deviance explained = 14.8%
+autoXY <- fitted(divers_GAm)
+
+nrow(birds_abund_covs_noLargePatches)
+length(hill_rich7bb_resids)
+length(autoXY)
+
+# sum(is.na(birds_abund_covs_noLargePatches$longitude))
+# sum(is.na(birds_abund_covs_noLargePatches$latitude))
+# # 1 site is missing lat and long MATHCING LENGHTS ALL GOOD
+birds_abund_covs_noLargePatches |>
+            filter(is.na(latitude))
+
+# birds_abund_covs_noLargePatches$autoXY <- autoXY
+# Refit hill_rich7bb with the autocorrelation factor
+hill_rich7bbXY <- glmmTMB(richness ~ Edge + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest 
+                            + poly(Year_since_logging2) + autoXY,
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich7bbXY)
+AIC(hill_rich7bbXY) # 1828.341 , really good AIC
+plot(simulateResiduals(hill_rich7bbXY)) # no deviance, some quantile trends visible but no significant
+r.squaredGLMM(hill_rich7bbXY) # 0.2535711
+divers_resd_XY <- residuals(hill_rich7bbXY) 
+
+corr <- spline.correlog(birds_abund_covs_noLargePatches$longitude, birds_abund_covs_noLargePatches$latitude, hill_rich7bb_resids, resamp = 99, type = "boot")
+corrXY <- spline.correlog(birds_abund_covs_noLargePatches$longitude, birds_abund_covs_noLargePatches$latitude, divers_resd_XY, resamp = 99, type = "boot")
+
+par(mfrow=c(1,2))
+plot(corr, main='null model')
+plot(corrXY, main='spatial model')
+
 # birds_abund_covs_noLargePatches$Veg_cat <- relevel(birds_abund_covs_noLargePatches$Veg_cat, ref = "n")
 
 comm_richness_interact <- glmmTMB(richness ~ Patch * Year_since_logging + Year_since_logging:Veg_cat,
@@ -780,3 +1045,4 @@ dev.off()
 
 # Reset to default single panel plot setting
 par(mfrow=c(1,1))
+```

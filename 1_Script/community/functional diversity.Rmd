@@ -12,9 +12,11 @@ Laliberté, E.; Legendre, P.; Shipley, B. FD: Measuring Functional Diversity fro
 
 Trait data can be accessed in R using https://github.com/RS-eco/traitdata.
 
+## Packages
+
 ```R
 #Get functional traits from the traitdata package
-# install.packages("remotes")
+# install.packages("r2glmm")
 # library(remotes)
 # remotes::install_github("RS-eco/traitdata")
 library(traitdata)
@@ -23,10 +25,20 @@ library(FD)
 library(tidyverse)
 library(dplyr)
 library(readr)
-
+library(mgcv)
+library(glmmTMB)
+library(DHARMa)
+library(vegan)
+library(ggplot2)
+library(patchwork)
+library(sjPlot)
+library(MuMIn)
+library(r2glmm)
+library(lme4)
 ```
+# Community metrics
 
-
+## Calculate Diversity
 Calculate functional diversity using the `FD` package in R:
 
 ```R
@@ -77,7 +89,7 @@ names(trait_data_select_birds)[names(trait_data_select_birds) == "English"] <- "
 ### Load dataframe with site level detection data----
 # |site|year|ALFL|AMBI|AMCO|AMCR|AMKE|AMPI|...|
 detection_data <- abundance_data[, !(names(abundance_data) %in% c("latitude", "longitude", "species_code"))]
-# View(detection_data)
+View(detection_data)
 #Set up traits dataframe ----
 ##Keep only traits of interest----
 trait_data<-trait_data_select_birds%>%
@@ -176,7 +188,7 @@ abund_no_empty_sites <- as.matrix(abund_no_empty_sites)
 View(trait_data)
 write.csv(abund_no_empty_sites, "0_Data/Processed/abundance_no_missing_detections.csv")
 # Dataframes need to be identical and ordered alphabetically
-
+nrow(abund_no_empty_sites)
 
 fd<- FD::dbFD(trait_data, abund_no_empty_sites)
 # fd<- FD::dbFD(trait_test, abund_test)
@@ -193,13 +205,46 @@ write.csv(fd_dataframe, "0_Data/Processed/functional_diversity.csv" )
 
 Now we have the function dicversity metrics, we can start doing some stats on it.
 
+## Set up data 
+
 ```R
 # How many sites have less than 3 species?
 fd_df <- read_csv("0_Data/Processed/functional_diversity.csv")
 covariates <- read_csv("0_Data/Processed/merged_covariates.csv")
+dist_to_forest <- read_csv("0_Data/Processed/retn dist to nearest forest.csv")
+dist_to_forest <- select(dist_to_forest, location, Dist_near_forest)
+covariates <- merge(covariates, dist_to_forest, by = "location")
 
 covariates <- covariates %>% select(-c("TEWA", "OSFL", "RCKI", "YRWA", "REVI", "WTSP"))
 names(fd_df)[1] <- "location"
+
+# Add amount edge
+covariates$Edge <- ifelse(covariates$RETN_m2 != 0 & covariates$RETN_perimeter_m !=0, 
+                            covariates$RETN_m2 / covariates$RETN_perimeter_m, 0)
+covariates$Year_since_logging2 <- covariates$Year_since_logging ^2
+
+# Add patch presence
+covariates <- covariates %>%
+      mutate(Patch = ifelse(RETN_m2 > 0, 1, 0))
+
+# Check the distribution of patch size
+ggplot(covariates, aes(x = RETN_m2)) +
+  geom_histogram()
+
+# This data has a few really large retention pathces. Let;s get rid of those
+covariates <- covariates |>
+  filter(RETN_m2 < 12000)
+
+# Check the distribution of patch size now -- better
+ggplot(covariates, aes(x = RETN_m2)) +
+  geom_histogram()
+
+# Scale some of these predictors
+predictors_to_scale <- c('RETN_m2', 'Year_since_logging', "Edge", "Year_since_logging2", "Dist_near_forest")
+covariates[, predictors_to_scale] <- lapply(covariates[, predictors_to_scale], function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+})
+View(covariates)
 
 # Filter the sites in covariates so they match with fd_df
 correct_sites <- fd_df$location
@@ -216,18 +261,24 @@ funcDiv_correct_sites <- fd_df |>
                           filter(location %in% sites_with_covs)
 nrow(funcDiv_correct_sites)
 nrow(covariates_matching_sites)
-
-# Now these two are mathcing in length
+write.csv(covariates_matching_sites, "0_Data/Processed/covariates_prepped_comm.csv" )
+# Now these two are mathcing in length (368 sites)
 # Reset the names os it is clear
 Covariates <- covariates_matching_sites
 FuncDiv <- funcDiv_correct_sites
 
 # Avoid duplication in column names
 FuncDiv_Covs <- cbind(Covariates, FuncDiv[, !names(FuncDiv) %in% names(Covariates)])
-write.csv(FuncDiv_Covs, "0_Data/Processed/functional_diversity_and_covs.csv")
+# write.csv(FuncDiv_Covs, "0_Data/Processed/functional_diversity_and_covs.csv")
 View(FuncDiv_Covs)
 # How many sites have less than 3 species?
 ?dbFD()
+
+```
+
+## Plots of observations
+
+```R 
 
 # nbsp: number of species in each community
 FuncDiv |>
@@ -245,30 +296,828 @@ ggplot(FuncDiv_Covs, aes(x = RETN_m2, y = nbsp, color = Veg_cat)) +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
   labs(x = "Patch area", y = "Number of Bird Species (nbsp)")
 
+ggplot(FuncDiv_Covs, aes(x = Edge, y = nbsp, color = Veg_cat)) +
+  geom_point() +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Patch edge", y = "Number of Bird Species (nbsp)")
+
 ggplot(FuncDiv_Covs, aes(x = Year_since_logging, y = FDiv, color = Veg_cat)) +
   geom_point() +
   theme_minimal() +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  labs(x = "Year Since Logging", y = "Number of Bird Species (nbsp)")
+  labs(x = "Year Since Logging", y = "Functional diversity")
 
 ggplot(FuncDiv_Covs, aes(x = RETN_m2, y = FDiv, color = Veg_cat)) +
   geom_point() +
   theme_minimal() +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  labs(x = "Patch area", y = "Number of Bird Species (nbsp)")
+  labs(x = "Patch area", y = "Functional diversity")
+
+ggplot(FuncDiv_Covs, aes(x = Edge, y = FDiv, color = Veg_cat)) +
+  geom_point() +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Patch edge", y = "Functional diversity")
 
 ggplot(FuncDiv_Covs, aes(x = Year_since_logging, y = FEve, color = Veg_cat)) +
   geom_point() +
   theme_minimal() +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  labs(x = "Year Since Logging", y = "Number of Bird Species (nbsp)")
+  labs(x = "Year Since Logging", y = "Functional evenness")
 
 ggplot(FuncDiv_Covs, aes(x = RETN_m2, y = FEve, color = Veg_cat)) +
   geom_point() +
   theme_minimal() +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  labs(x = "Patch area", y = "Number of Bird Species (nbsp)")
+  labs(x = "Patch area", y = "Functional evenness")
+
+```
+
+No trends are evident by the quick plots. Let's make some linear regressions
+
+## Functional divergence
+```R 
+names(FuncDiv_Covs)
+
+Func_diversity_glm0 <- glmmTMB(FDiv ~ (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm0) # -920.4418
+
+Func_diversity_glm1 <- glmmTMB(FDiv ~ Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm1) # -918.4727
+
+Func_diversity_glm2 <- glmmTMB(FDiv ~ RETN_m2 + Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm2) # [1] -919.6305
+
+Func_diversity_glm3 <- glmmTMB(FDiv ~ RETN_m2,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm3) # [1] -923.6305
+
+Func_diversity_glm4 <- glmmTMB(FDiv ~ Edge + Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm4) # [1] -922.1918
+
+Func_diversity_glm5 <- glmmTMB(FDiv ~ RETN_m2 + Year_since_logging + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm5) # [1] -929.7684
+
+# Best so far
+Func_diversity_glm6 <- glmmTMB(FDiv ~ RETN_m2 + Year_since_logging*Patch
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm6) # [1] -916.679
+summary(Func_diversity_glm6)
+r.squaredGLMM(Func_diversity_glm6)
+
+Func_diversity_glm7 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging^2)*Patch
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm7) # [1] -917.139
+summary(Func_diversity_glm7)
+r.squaredGLMM(Func_diversity_glm7)
+
+Func_diversity_glm8 <- glmmTMB(FDiv ~ RETN_m2:poly(Year_since_logging2)
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm8) # [1] -918.2895
+summary(Func_diversity_glm8)
+plot_model(Func_diversity_glm8, type = "int")
+
+Func_diversity_glm8 <- glmmTMB(FDiv ~ RETN_m2:poly(Year_since_logging2)
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm8)
+
+inter <- glmmTMB(FDiv ~ Edge:Year_since_logging,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(inter) # [1] -922.3459
+
+inter2 <- glmmTMB(FDiv ~ Edge*Year_since_logging,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(inter2) # [1] -919.3768
+
+Func_diversity_glm9 <- glmmTMB(FDiv ~ RETN_m2 + Year_since_logging*Patch + percent_spruce
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm9) # [1] -930.3723
+summary(Func_diversity_glm9)
+
+Func_diversity_glm10 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging2):Patch + percent_spruce
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm10) # [1]  -933.4 
+summary(Func_diversity_glm10)
+
+Func_diversity_glm11 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging2):Edge + percent_spruce
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm11) # [1]  -933.4 
+summary(Func_diversity_glm11)
+r.squaredGLMM(Func_diversity_glm11)
+
+Func_diversity_glm12 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging2):Edge + percent_spruce + poly(Year_since_logging2)
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm12) # [1] -932.6875
+summary(Func_diversity_glm12)
+r.squaredGLMM(Func_diversity_glm12)
+
+Func_diversity_glm13 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging2):Patch + percent_spruce + poly(Year_since_logging2)
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm13) # [1] -932.23
+summary(Func_diversity_glm13)
+r.squaredGLMM(Func_diversity_glm13)
+
+Func_diversity_glm14 <- glmmTMB(FDiv ~ poly(Year_since_logging2):Edge + percent_spruce + poly(Year_since_logging2)
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm14) # [1] -931.1649
+summary(Func_diversity_glm14)
+r.squaredGLMM(Func_diversity_glm14)
+
+Func_diversity_glm15 <- glmmTMB(FDiv ~ poly(Year_since_logging2):RETN_m2 + percent_spruce + poly(Year_since_logging2)
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm15) # [1] -930.969
+summary(Func_diversity_glm15)
+r.squaredGLMM(Func_diversity_glm15)
+
+Func_diversity_glm16 <- glmmTMB(FDiv ~ poly(Year_since_logging2):RETN_m2 + Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm16) # [1] -916.473
+summary(Func_diversity_glm16)
+r.squaredGLMM(Func_diversity_glm16) # 0.3213861
+
+# This one is really good. Good AIC, 0.38 cR2
+Func_diversity_glm16b <- glmmTMB(FDiv ~ poly(Year_since_logging2)*RETN_m2 + Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm16b) # [1] -919.2 
+summary(Func_diversity_glm16b)
+r.squaredGLMM(Func_diversity_glm16b) # 0.3805074
+
+Func_diversity_glm17 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging2)*Patch + Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm17) # [1] -918.2036
+summary(Func_diversity_glm17)
+r.squaredGLMM(Func_diversity_glm17)
+
+Func_diversity_glm18 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging2)*Patch
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm18) # [1] -919.6316
+summary(Func_diversity_glm18)
+r.squaredGLMM(Func_diversity_glm17)
+
+Func_diversity_glm19 <- glmmTMB(FDiv ~ poly(Year_since_logging2)*Edge + Year_since_logging
+                              + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm19) # [1] -922.1
+summary(Func_diversity_glm19)
+r.squaredGLMM(Func_diversity_glm19)
+
+# Edge seems promising
+Func_diversity_glm19 <- glmmTMB(FDiv ~ poly(Year_since_logging2) + Edge
+                              + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm19) # -922.3532
+summary(Func_diversity_glm19)
+r.squaredGLMM(Func_diversity_glm19)
+
+# Let's add edge to the other good model
+Func_diversity_glm20 <- glmmTMB(FDiv ~ poly(Year_since_logging2)*RETN_m2 + Year_since_logging + Edge
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm20) # [1] -919.2 
+summary(Func_diversity_glm20)
+r.squaredGLMM(Func_diversity_glm20)
+
+Func_diversity_glm20 <- glmmTMB(FDiv ~ poly(Year_since_logging2) + RETN_m2 * Year_since_logging + Dist_near_forest
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm20) # -917.6
+summary(Func_diversity_glm20)
+r.squaredGLMM(Func_diversity_glm20)
+
+Func_diversity_glm21 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging2):Patch + Year_since_logging + Dist_near_forest
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm21) # -915.9634
+summary(Func_diversity_glm21)
+r.squaredGLMM(Func_diversity_glm21)
+```
+
+## Distance to nearest forest
+
+```R
+Func_diversity_glm22 <- glmmTMB(FDiv ~ Dist_near_forest*Year_since_logging + RETN_m2
+                                   ,
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm22) # [1] -917.9633
+summary(Func_diversity_glm22)
+r.squaredGLMM(Func_diversity_glm22)
+
+Func_diversity_glm23 <- glmmTMB(FDiv ~ Dist_near_forest +Year_since_logging + RETN_m2,
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm23) # -919.9633
+r.squaredGLMM(Func_diversity_glm23)
+
+Func_diversity_glm23 <- glmmTMB(FDiv ~ Dist_near_forest*poly(Year_since_logging2) + RETN_m2 + Edge
+                                   ,
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm23) # [1] -921.8365
+r.squaredGLMM(Func_diversity_glm23)
+
+Func_diversity_glm24 <- glmmTMB(FDiv ~ Dist_near_forest*Year_since_logging + RETN_m2
+                                   + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm24) # [1] -915.9633
+summary(Func_diversity_glm24)
+r.squaredGLMM(Func_diversity_glm24)
+
+View(FuncDiv_Covs)
+
+Func_diversity_glm25 <- glmmTMB(FDiv ~ Dist_near_forest*Year_since_logging + RETN_m2 + percent_spruce,
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Func_diversity_glm25) # [1] -931.5585
+summary(Func_diversity_glm25)
+r.squaredGLMM(Func_diversity_glm25)
 
 
+```
+
+## Vegetation as dummy variables
+```R
+factor(FuncDiv_Covs$Veg_cat)
+model.matrix(FRic ~ 1, data = FuncDiv_Covs)
+summary(lm(formula = FRic ~ 1, data = FuncDiv_Covs))
+
+head(model.matrix(FRic ~ Veg_cat, data=FuncDiv_Covs))
+summary(lm(formula = FRic ~ Veg_cat, data = FuncDiv_Covs))
+
+Veg_glm1 <- glmmTMB(FDiv ~ Dist_near_forest*Year_since_logging + RETN_m2
+                                   + Veg_cat*Patch,
+                        data = FuncDiv_Covs,
+                        family = gaussian)                       
+
+AIC(Veg_glm1) # [1] -926.6587
+summary(Veg_glm1) 
+r.squaredGLMM(Veg_glm1)
+
+
+```
+
+## Residuals
+``` R
+# est: FDiv ~ RETN_m2 + poly(Year_since_logging^2)*Patch + (1|location),
+# Residuals look really good
+plot(simulateResiduals(Func_diversity_glm11))
+
+
+Func_diversity_glm1 <- glmmTMB(FDiv ~ RETN_m2 + poly(Year_since_logging^2)  + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+summary(Func_diversity_glm1)
+
+Func_diversity_glm2 <- glmmTMB(FDiv ~ Edge + Year_since_logging  + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+summary(Func_diversity_glm2)
+# Higher AIC than the Area model
+
+Func_diversity_glm3 <- glmmTMB(FDiv ~ RETN_m2 + Year_since_logging:Patch  + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+summary(Func_diversity_glm3)
+
+gam_FuncDiv <- gam(FDiv ~ s(Year_since_logging),
+                    data = FuncDiv_Covs,
+                    family=gaussian)    
+summary(gam_FuncDiv)
+plot(gam_FuncDiv)
+
+```
+
+Area and edge seem to have an effect on functional diversity, 
+and year of harvest is a small effect but quadratic with a maximum around mid age range.
+
+Next, plots
+```R 
+p1 <- ggplot(FuncDiv_Covs, aes(x = RETN_m2, y = FDiv)) +
+  geom_point() +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"))
+
+p2 <- ggplot(FuncDiv_Covs, aes(x = Edge, y = FDiv)) +
+  geom_point() +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"))
+
+# Combine the plots side by side
+combined_plot <- p1 + p2 +
+  plot_layout(widths = c(1, 1), heights = c(1,1))
+
+# Print the combined plot
+combined_plot
+
+
+```
+
+## Functional richness
+
+```R 
+names(FuncDiv_Covs)
+
+Func_diversity_glm0 <- glmmTMB(FRic ~ (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm0) # NA, model divergence
+
+Func_diversity_glm1 <- glmmTMB(FRic ~ Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm1) # NA, model divergence
+
+Func_diversity_glm2 <- glmmTMB(FRic ~ RETN_m2 + Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm2) # [1] -1739.577
+
+Func_diversity_glm3 <- glmmTMB(FRic ~ RETN_m2,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm3) # [1] -1739.875
+
+Func_diversity_glm3b <- glmmTMB(FRic ~ Edge
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm3b) # [1] -1739.914
+
+Func_diversity_glm4 <- glmmTMB(FRic ~ Edge + Year_since_logging
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm4) # [1] -1741.441
+
+Func_diversity_glm5 <- glmmTMB(FRic ~ RETN_m2 + Year_since_logging + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm5) # [1] -1747.962
+
+Func_diversity_glm5b <- glmmTMB(FRic ~ Edge + Year_since_logging + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm5b) # [1] -1749.468
+
+Func_diversity_glm6 <- glmmTMB(FRic ~ RETN_m2 + Year_since_logging*Patch
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm6) # [1] -1736.236
+summary(Func_diversity_glm6)
+
+Func_diversity_glm6b <- glmmTMB(FRic ~ Edge + Year_since_logging*Patch
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm6b) # [1] -1737.546
+summary(Func_diversity_glm6b)
+
+Func_diversity_glm7 <- glmmTMB(FRic ~ RETN_m2 + Year_since_logging*Patch + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm7) # [1] -1744.254
+
+Func_diversity_glm7b <- glmmTMB(FRic ~ Edge + Year_since_logging*Patch + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm7b) # [1] -1745.675
+ 
+Func_diversity_glm8 <- glmmTMB(FRic ~ RETN_m2 + Year_since_logging* Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm8) #  [1] -1743.708
+
+Func_diversity_glm9 <- glmmTMB(FRic ~ RETN_m2 + Year_since_logging*Patch
+                                    + (1|Veg_cat),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm9) # [1] -1741.667
+summary(Func_diversity_glm9)
+r.squaredGLMM(Func_diversity_glm9)
+
+Func_diversity_glm10 <- glmmTMB(FRic ~ RETN_m2 + poly(Year_since_logging2)*Patch
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm10) # [1] -1736.45
+summary(Func_diversity_glm10)
+r.squaredGLMM(Func_diversity_glm10)
+
+Func_diversity_glm11 <- glmmTMB(FRic ~ RETN_m2 + poly(Year_since_logging2)*Patch + Veg_cat
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm11) # [1] -1744.023
+summary(Func_diversity_glm11)
+r.squaredGLMM(Func_diversity_glm11)
+
+Func_diversity_glm12 <- glmmTMB(FRic ~ RETN_m2 + poly(Year_since_logging2) 
+                                    + (1|location) + (Patch|Veg_cat),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm12) # [1] NA divergence
+summary(Func_diversity_glm12)
+r.squaredGLMM(Func_diversity_glm12) # [1,] 0.01298525, 0.7503904
+
+Func_diversity_glm13 <- glmmTMB(FRic ~ RETN_m2 + poly(Year_since_logging2) 
+                                     + (Patch|Veg_cat),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm13) # [1] -1744.942
+summary(Func_diversity_glm13)
+r.squaredGLMM(Func_diversity_glm13)
+
+
+Func_diversity_glm14 <- glmmTMB(FRic ~ RETN_m2 + poly(Year_since_logging2) 
+                                     + (1|Patch),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm14) # [1] -1739.806
+summary(Func_diversity_glm14)
+r.squaredGLMM(Func_diversity_glm14)
+
+
+
+Func_diversity_glm8 <- glmmTMB(FRic ~ RETN_m2:poly(Year_since_logging2)
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm8) # [1] -918.2895
+summary(Func_diversity_glm8)
+plot_model(Func_diversity_glm8, type = "int")
+
+Func_diversity_glm8 <- glmmTMB(FRic ~ RETN_m2:poly(Year_since_logging2)
+                                    + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm8)
+
+inter <- glmmTMB(FRic ~ Edge:Year_since_logging,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(inter) # [1] -922.3459
+
+inter2 <- glmmTMB(FRic ~ Edge*Year_since_logging,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(inter2) # [1] -919.3768
+```
+
+# Single species metrics: Patch area
+
+Out of 18 species, Patch Area is positive for 3: LEFL, WAVI, YEWA.
+
+
+```R 
+abundance <- read_csv("0_Data/Processed/community_abundance_by_location.csv")
+covariates <- read_csv("0_Data/Processed/covariates_prepped_comm.csv")
+View(abundance)
+Abund_Covs <- merge(abundance, covariates, by = "location")
+
+ALFL <- glmmTMB(ALFL ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(ALFL)
+
+
+AMRE <- glmmTMB(AMRE ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(AMRE)
+
+BTNW <- glmmTMB(BTNW ~  Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(BTNW)
+
+CHSP <- glmmTMB(CHSP ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(CHSP)
+
+COYE <- glmmTMB(COYE ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(COYE)
+
+HETH <- glmmTMB(HETH ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(HETH)
+
+# So far, only one wehere RETN_m2 matter. It's positive for this dude
+LEFL <- glmmTMB(LEFL ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(LEFL) # AIC: 220
+
+# Convergence issue. Only 4 sites with more than 1 LCSP
+LCSP <- glmmTMB(LCSP ~ Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(LCSP)
+nrow(Abund_Covs |> filter(LCSP >0)) #4
+
+LISP <- glmmTMB(LISP ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(LISP)
+
+MOWA <- glmmTMB(MOWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(MOWA)
+
+OVEN <- glmmTMB(OVEN ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(OVEN) # AIC: 238
+
+# No PHVI in the data
+PHVI <- glmmTMB(PHVI ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(PHVI)
+
+REVI <- glmmTMB(REVI ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(REVI)
+
+RCKI <- glmmTMB(RCKI ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(RCKI)
+
+SWTH <- glmmTMB(SWTH ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(SWTH)
+
+# RETN_m2 positive
+WAVI <- glmmTMB(WAVI ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(WAVI) # AIC 482
+
+WTSP <- glmmTMB(WTSP ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(WTSP)
+
+WIWR <- glmmTMB(WIWR ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(WIWR)
+
+# RETN positive
+YEWA <- glmmTMB(YEWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(YEWA) # ACID 187, better than Edge
+
+YRWA <- glmmTMB(YRWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(YRWA) # AIC 570
+
+
+```
+
+# Single species metrics: Patch edge 
+Out of 18 species, Patch Edge is positive for 4 LEFL, WAVI, YEWA, YRWA
+and negative for OVEN.
+```R 
+ALFL <- glmmTMB(ALFL ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(ALFL)
+
+
+AMRE <- glmmTMB(AMRE ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(AMRE)
+
+BTNW <- glmmTMB(BTNW ~  Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(BTNW)
+
+CHSP <- glmmTMB(CHSP ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(CHSP)
+
+COYE <- glmmTMB(COYE ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(COYE)
+
+HETH <- glmmTMB(HETH ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(HETH)
+
+# So far, only one where Edge matter. It's positive for this dude
+LEFL <- glmmTMB(LEFL ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(LEFL) # AIC: 227
+
+# Convergence issue. Only 4 sites with more than 1 LCSP
+LCSP <- glmmTMB(LCSP ~ Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(LCSP)
+nrow(Abund_Covs |> filter(LCSP >0)) #4
+
+LISP <- glmmTMB(LISP ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(LISP)
+
+MOWA <- glmmTMB(MOWA ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(MOWA)
+
+# Edge bad
+OVEN <- glmmTMB(OVEN ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(OVEN)# AIC: 237
+
+# No PHVI in the data
+PHVI <- glmmTMB(PHVI ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(PHVI)
+
+REVI <- glmmTMB(REVI ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(REVI)
+
+RCKI <- glmmTMB(RCKI ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(RCKI)
+
+SWTH <- glmmTMB(SWTH ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(SWTH)
+
+# Edge positive
+WAVI <- glmmTMB(WAVI ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(WAVI) # AIC 428, better than RETN_m2 model
+
+WTSP <- glmmTMB(WTSP ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(WTSP)
+
+WIWR <- glmmTMB(WIWR ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(WIWR)
+
+# Edge positive
+YEWA <- glmmTMB(YEWA ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(YEWA) # AIC 189
+
+# Edge positive
+YRWA <- glmmTMB(YRWA ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(YRWA) # ACI 569
+
+GRJA
+```
+
+# Response from birds of prey, and nest eaters?
+```R 
+CAJA <- glmmTMB(CAJA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(CAJA)
+
+AMCR <- glmmTMB(AMCR ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(AMCR)
+
+DOWO <- glmmTMB(DOWO ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(DOWO)
+
+PIWO <- glmmTMB(PIWO ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(PIWO)
+
+RUGR <- glmmTMB(RUGR ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(RUGR)
+
+BLJA <- glmmTMB(BLJA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(BLJA)
+
+# Likes the retentin patches
+CORA <- glmmTMB(CORA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(CORA)
 
 ```
