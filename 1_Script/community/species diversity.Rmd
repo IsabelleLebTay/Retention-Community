@@ -24,6 +24,9 @@ library(mgcv)
 library(hillR)
 library(patchwork)
 library(car)
+library(sjPlot)
+library(MuMIn)
+library(corrplot)
 # install.packages("hillR")
 # library(cmdstanr)
 # PATH_TO_CMDSTAN <- "C:/Users/ilebe/.cmdstan/cmdstan-2.31.0" # nolint
@@ -63,19 +66,21 @@ head(birds_abund)
 print(shannon_indices)
 
 names(covariates)
-
+# Add patch presence
+covariates <- covariates %>%
+      mutate(Patch = ifelse(RETN_m2 > 0, 1, 0))
 # Add amount edge
 covariates$Edge <- ifelse(covariates$RETN_m2 != 0 & covariates$RETN_perimeter_m !=0, 
                             covariates$RETN_m2 / covariates$RETN_perimeter_m, 0)
 covariates$Year_since_logging2 <- covariates$Year_since_logging ^2
-
+names(covariates)
 selected_covariates <- covariates[, c("location", "percent_decid", "percent_mixed",
                                         "percent_spruce", "percent_pine", "Patch",
                                         "RETN_m2", "RETN_perimeter_m",
                                         "Year_since_logging", "Veg_cat", 
                                         "Dist_near_forest", "Edge", "Year_since_logging2")]
 birds_abund_covs <- merge(selected_covariates, birds_abund, by = "location")
-names(birds_abund_covs)
+# names(birds_abund_covs)
 nrow(birds_abund_covs)
 birds_abund_covs_noLargePatches <- birds_abund_covs |>
   filter(RETN_m2 < 12000)
@@ -94,8 +99,7 @@ birds_abund_covs_noLargePatches[, predictors_to_scale] <- lapply(birds_abund_cov
 code_columns <- names(birds_abund)[5:ncol(birds_abund)]
 View(birds_abund)
 # Add a patch presence column
-covariates <- covariates %>%
-      mutate(Patch = ifelse(RETN_m2 > 0, 1, 0))
+
 
 birds <- birds_abund
 # Apply the transformation
@@ -177,7 +181,7 @@ covs_for_cor_test <- covariates[, c("Patch",
 correlation_matrix <- cor(covs_for_cor_test)
 View(correlation_matrix)
 
-library(corrplot)
+
 corrplot(correlation_matrix, method = "circle")
 
 hist(birds_abund_covs_noLargePatches$richness)
@@ -328,13 +332,15 @@ plot(corrXY, main='spatial model')
 species_data <- birds_abund_covs_noLargePatches[, 18:(ncol(birds_abund_covs_noLargePatches)-2)]  # Adjust the column indices as per your data
 
 # Hill taxonomic indices
+# Hill number, q = 0 (default) to get species richness, q = 1 to get shannon entropy, q = 2 will give inverse Simpson.
 birds_abund_covs_noLargePatches$richness <- hill_taxa(comm= species_data, q=0)
 birds_abund_covs_noLargePatches$evenness <- hill_taxa(comm= species_data, q=2)
+# ?hill_taxa()
 
 ## Cannot have an evenness when there are no species
-community_covs_positives <- birds_abund_covs_noLargePatches |>
+birds_abund_covs_noLargePatches <- birds_abund_covs_noLargePatches |>
                                             filter(evenness != "Inf")
-community_covs_positives$Veg_cat <- as.factor(community_covs_positives$Veg_cat)
+# community_covs_positives$Veg_cat <- as.factor(community_covs_positives$Veg_cat)
 birds_abund_covs_noLargePatches$Veg_cat <- as.factor(birds_abund_covs_noLargePatches$Veg_cat)
 # species_data$BTNW
 # CAWA <-birds_abund |>
@@ -464,13 +470,91 @@ r.squaredGLMM(hill_rich7bb) # lognormal R2m = 0.1070286
 plot(simulateResiduals(hill_rich7bb)) # Dispersion 
 ```
 
-## Camparing top models
+
+# Richness: Top model and plots 
+
+```R 
+# This is the best model
+hill_rich5re <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+
+# Save the top model output
+hill_rich5re_summary <- summary(hill_rich5re)
+# Extract the coefficients table (fixed effects as an example)
+coefficients_table <- as.data.frame(hill_rich5re_summary$coefficients$cond) # for conditional effects
+# If you want to save random effects or other parts, adjust accordingly
+
+# Save the coefficients table to a CSV file
+write.csv(coefficients_table, file.path("2_Outputs/Taxonomic", "hill_rich5re_summary.csv"), row.names=TRUE)
+
+## Retyring to predict data and plot
+# exlcude the ranodm effects
+hill_rich_no_re <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+
+# Create a new data frame for predictions
+predict_data_age2 <- data.frame(
+  Dist_near_forest = mean(birds_abund_covs_noLargePatches$Dist_near_forest, na.rm = TRUE),
+  RETN_m2 = mean(birds_abund_covs_noLargePatches$RETN_m2, na.rm = TRUE),
+  Year_since_logging = mean(birds_abund_covs_noLargePatches$Year_since_logging, na.rm = TRUE),
+  Year_since_logging2 = seq(min(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), 
+                           max(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), length.out = 367))
+predict_data_age2$Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2)
+
+# Predict using the model without the random effect
+predicted_no_re <- predict(hill_rich_no_re, newdata = predict_data_age2, type = "response", se.fit = TRUE)
+
+# Add predictions and confidence intervals to the data frame
+predict_data_age2$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
+predict_data_age2$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
+predict_data_age2$predicted <- predicted_no_re$fit
+View(predict_data_age2)
+# Plotting
+Age2_plot <- predict_data_age2 %>%
+  ggplot(aes(x = Year_since_logging, y = predicted)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .3, linetype = 0) + 
+  geom_line()+
+  geom_point(data = birds_abund_covs_noLargePatches, aes(x = sqrt(Year_since_logging2), y = richness, group = 1), alpha = .7) +
+  theme_minimal() +
+  ylab("Taxonomic richness") +
+  xlab(expression("Year since logging")) +
+  theme(legend.position = c(.9, .75))
+
+print(Age2_plot)
+
+# Scaled back
+predict_data_age2$Original_Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2) * 22
+
+# Update plotting code
+Age2_plot_unscaled <- predict_data_age2 %>%
+  ggplot(aes(x = Original_Year_since_logging, y = predicted, group = 1)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .3, linetype = 0) +
+  geom_line() +
+  geom_point(data = birds_abund_covs_noLargePatches, aes(x = Year_since_logging * 22, y = richness, group = 1), alpha = .7) + # Adjust for actual data points if necessary
+  theme_minimal() +
+  ylab("Taxonomic richness") +
+  xlab("Year since logging") +
+  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
+  scale_x_continuous(limits = c(0, 22)) + # Explicitly set x-axis limits
+  theme(legend.position = "none")
+print(Age2_plot_unscaled)
+
+ggsave(filename = file.path("2_Outputs/Taxonomic", "Unscaled hill_rich_5_nore effect of harvest age on taxonomic rich.png"), plot = Age2_plot_unscaled, width = 10, height = 6)
+
+plot_model(hill_rich5re, "est")
+plot_model(distance_forest_3, type = "std")
+```
+
+# Camparing top models
 ```R
 # This is the best model
 hill_rich5re <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
                         data = birds_abund_covs_noLargePatches,
                         family = poisson)
 summary(hill_rich5re)
+nrow(birds_abund_covs_noLargePatches)
 AIC(hill_rich5re) # 1896.409
 r.squaredGLMM(hill_rich5re) # delta R2m = 0.2573984
 plot(simulateResiduals(hill_rich5re)) # Residuals ok
@@ -528,6 +612,7 @@ mean(hill_rich7bb_resids)
 sd(hill_rich7bb_resids)
 hist(rlnorm(372, mean(hill_rich7bb_resids), sd(hill_rich7bb_resids)))
 
+# Not needed
 divers_GAm <- gam(hill_rich7bb_resids ~ s(longitude, latitude), data = birds_abund_covs_noLargePatches, family = gaussian)
 plot(divers_GAm)
 summary(divers_GAm) # maybe some spatial correlation, Deviance explained = 14.8%
@@ -563,12 +648,11 @@ plot(corr, main='null model')
 plot(corrXY, main='spatial model')
 
 # birds_abund_covs_noLargePatches$Veg_cat <- relevel(birds_abund_covs_noLargePatches$Veg_cat, ref = "n")
+```
 
-comm_richness_interact <- glmmTMB(richness ~ Patch * Year_since_logging + Year_since_logging:Veg_cat,
-                    data = community_covs_scaled,
-                    family=poisson)                    
-summary(comm_richness_interact)
 
+# GAM on the non-linear effect of age: richness
+```R
 gam_richness1 <- gam(richness ~ s(Year_since_logging),
                     data = community_covs_scaled,
                     family=poisson)   
@@ -719,13 +803,17 @@ BTNW <- birds_abund_covs_positives |>
                       filter(BTNW > 0)
 View(BTNW)
 write.csv(INF, file.path("0_Data/Processed", 'sites with no detections & no bad weather.csv'))
+```
 
+# dbRDA 
+```R
 #6 Distance-based redundancy analysis, continuous predictors----
 ## dbRDA
 # write.csv(birds_abund_covs_noLargePatches, file.path("0_Data/Processed", "birds_abund_covs_noLargePatches.csv"))
 # Prepare species abundance data (assuming these are the last columns, adjust as needed)
 # View(community_covs)
-community_covs_scaled <- read.csv(file.path("0_Data/Processed", "Community_scaled.csv"))
+# community_covs_scaled <- read.csv(file.path("0_Data/Processed", "Community_scaled.csv"))
+community_covs_scaled <- birds_abund_covs_noLargePatches
 
 # Select speices that are present at least 3 sites
 Species_detection_histories <- read.csv(file.path("0_Data/Processed", "species_detection_rate.csv"))
