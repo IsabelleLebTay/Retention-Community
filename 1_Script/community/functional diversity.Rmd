@@ -963,6 +963,15 @@ YRWA <- glmmTMB(YRWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 
                 family = poisson)
 summary(YRWA) # AIC 570
 
+TEWA <- glmmTMB(TEWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(TEWA)
+
+OSFL <- glmmTMB(OSFL ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+                data = Abund_Covs,
+                family = poisson)
+summary(OSFL)
 
 ```
 
