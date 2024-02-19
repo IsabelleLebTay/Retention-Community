@@ -8,7 +8,6 @@ description: "Code for calculating species diversity in R"
 **Original Script by ILT**
 
 # Load packages
-
 ```R
 library(tidyverse)
 library(vegan)
@@ -325,18 +324,19 @@ plot(corrXY, main='spatial model')
 ```
 
 # Hill taxonomic diversity
-## Testing models
+# Hill 0: Testing models
 ```R
 #5 Richness and evenness----
 # hill_taxa (q=0) will give richness
 species_data <- birds_abund_covs_noLargePatches[, 18:(ncol(birds_abund_covs_noLargePatches)-2)]  # Adjust the column indices as per your data
-?hill_taxa
+# ?hill_taxa
 # Hill taxonomic indices
 # Hill number, q = 0 (default) to get species richness, q = 1 to get shannon entropy, q = 2 will give inverse Simpson.
 birds_abund_covs_noLargePatches$richness <- hill_taxa(comm= species_data, q=0)
+birds_abund_covs_noLargePatches$Sentropy <- hill_taxa(comm= species_data, q=1)
 birds_abund_covs_noLargePatches$evenness <- hill_taxa(comm= species_data, q=2)
 # ?hill_taxa()
-?AIC
+# ?AIC
 ## Cannot have an evenness when there are no species
 birds_abund_covs_noLargePatches <- birds_abund_covs_noLargePatches |>
                                             filter(evenness != "Inf") # 367
@@ -354,7 +354,6 @@ hill_richnull <- glmmTMB(richness ~ Patch,
                         family = poisson)
 summary(hill_richnull)
 AIC(hill_richnull) # [1] 1854.639
-
 
 
 hill_rich0 <- glmmTMB(richness ~ RETN_m2 + Year_since_logging,
@@ -476,133 +475,33 @@ summary(hill_rich7bb)
 AIC(hill_rich7bb) # 1904.439
 r.squaredGLMM(hill_rich7bb) # lognormal R2m = 0.1070286
 plot(simulateResiduals(hill_rich7bb)) # Dispersion 
-```
 
-# Richness: Top model and plots 
-```R 
-# This is the best model
-hill_rich5re <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+hill_rich10re <-  glmmTMB(richness ~ Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
                         data = birds_abund_covs_noLargePatches,
                         family = poisson)
+AIC(hill_rich10re) # 1829.083
+summary(hill_rich10re)
+AIC(hill_rich10re) # 1904.439
+r.squaredGLMM(hill_rich10re) # lognormal R2m = 0.1070286
+plot(simulateResiduals(hill_rich10re))
 
-# Save the top model output
-hill_rich5re_summary <- summary(hill_rich5re)
-hill_rich5re_summary
-# Extract the coefficients table (fixed effects as an example)
-coefficients_table <- as.data.frame(hill_rich5re_summary$coefficients$cond) # for conditional effects
-# If you want to save random effects or other parts, adjust accordingly
-
-# Save the coefficients table to a CSV file
-write.csv(coefficients_table, file.path("2_Outputs/Taxonomic", "hill_rich5re_summary.csv"), row.names=TRUE)
-
-## Retyring to predict data and plot
-# exlcude the ranodm effects
-hill_rich_no_re <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+hill_rich10 <-  glmmTMB(richness ~ Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
                         data = birds_abund_covs_noLargePatches,
                         family = poisson)
-summary(hill_rich_no_re)
-# Create a new data frame for predictions
-predict_data_age2 <- data.frame(
-  Dist_near_forest = mean(birds_abund_covs_noLargePatches$Dist_near_forest, na.rm = TRUE),
-  RETN_m2 = mean(birds_abund_covs_noLargePatches$RETN_m2, na.rm = TRUE),
-  Year_since_logging = mean(birds_abund_covs_noLargePatches$Year_since_logging, na.rm = TRUE),
-  Year_since_logging2 = seq(min(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), 
-                           max(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), length.out = 367))
-predict_data_age2$Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2)
-
-# Predict using the model without the random effect
-predicted_no_re <- predict(hill_rich_no_re, newdata = predict_data_age2, type = "response", se.fit = TRUE)
-
-# Add predictions and confidence intervals to the data frame
-predict_data_age2$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
-predict_data_age2$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
-predict_data_age2$predicted <- predicted_no_re$fit
-View(predict_data_age2)
-
-# Plotting harvest age
-# Scaled back
-predict_data_age2$Original_Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2) * 22
-
-# Update plotting code
-Age2_plot_scaled <- predict_data_age2 %>%
-  ggplot(aes(x = Original_Year_since_logging, y = predicted, group = 1)) +
-  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
-  geom_line() +
-  geom_point(data = birds_abund_covs_noLargePatches, 
-            aes(x = Year_since_logging * 22, y = richness, group = 1), 
-            size = 0.5,
-            alpha = .3,
-            position = "jitter") + # Adjust for actual data points if necessary
-  theme_minimal() +
-  ylab("Species richness") +
-  xlab("Year since logging") +
-  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
-  scale_x_continuous(limits = c(0, 22)) + # Explicitly set x-axis limits
-  theme(legend.position = "none", 
-        axis.text=element_text(size=12),
-        axis.title=element_text(size=14))
-# ?geom_point
-print(Age2_plot_scaled)
-
-ggsave(filename = file.path("2_Outputs/Taxonomic", "Species richness and year since logging2.png"), plot = Age2_plot_scaled, width = 5, height = 4)
-
-# Distance plot
-# Create a new data frame for distance predictions
-predict_data_distance <- data.frame(
-  Dist_near_forest = seq(min(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), 
-                           max(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), length.out = 367),
-  RETN_m2 = mean(birds_abund_covs_noLargePatches$RETN_m2, na.rm = TRUE),
-  Year_since_logging = mean(birds_abund_covs_noLargePatches$Year_since_logging, na.rm = TRUE),
-  Year_since_logging2 = mean(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE))
-
-# Predict using the model without the random effect
-predicted_no_re <- predict(hill_rich_no_re, newdata = predict_data_distance, type = "response", se.fit = TRUE)
-
-# Add predictions and confidence intervals to the data frame
-predict_data_distance$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
-predict_data_distance$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
-predict_data_distance$predicted <- predicted_no_re$fit
-# View(predict_data_age2)
-
-predict_data_distance$Original_distance <- predict_data_distance$Dist_near_forest * 986
-
-distance_plot_scaled <- predict_data_distance %>%
-  ggplot(aes(x = Original_distance, y = predicted, group = 1)) +
-  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
-  geom_line() +
-  geom_point(data = birds_abund_covs_noLargePatches, 
-            aes(x = Dist_near_forest * 986, y = richness, group = 1), 
-            size = 0.5,
-            alpha = .3,
-            position = "jitter") + # Adjust for actual data points if necessary
-  theme_minimal() +
-  ylab("Species richness") +
-  xlab("Distance nearest unharvest forest (m)") +
-  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
-  scale_x_continuous(limits = c(0, 750)) + # Explicitly set x-axis limits
-  theme(legend.position = "none", 
-        axis.text=element_text(size=12),
-        axis.title=element_text(size=14))
-# ?geom_point
-print(distance_plot_scaled)
-
-ggsave(filename = file.path("2_Outputs/Taxonomic", "Species richness and distance forest.png"), plot = distance_plot_scaled, width = 5, height = 4)
-
-# plot_model(hill_rich5re, "est")
-# plot_model(distance_forest_3, type = "std")
+AIC(hill_rich10) # 1831.558
 ```
 
-# Camparing top models
+# Hill 0: Comparing top models
 ```R
 # This is the best model
-hill_rich5re <- glmmTMB(richness ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+hill_rich10re <-  glmmTMB(richness ~ Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
                         data = birds_abund_covs_noLargePatches,
                         family = poisson)
-summary(hill_rich5re)
+AIC(hill_rich10re) # 1829.083
+summary(hill_rich10re)
 nrow(birds_abund_covs_noLargePatches)
-AIC(hill_rich5re) # 1896.409
-r.squaredGLMM(hill_rich5re) # delta R2m = 0.2573984
-plot(simulateResiduals(hill_rich5re)) # Residuals ok
+r.squaredGLMM(hill_rich10re) # delta R2m = 0.2573984
+plot(simulateResiduals(hill_rich10re)) # Residuals ok
 
 hill_rich5bre <- glmmTMB(richness ~ Edge + Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
                         data = birds_abund_covs_noLargePatches,
@@ -695,6 +594,429 @@ plot(corrXY, main='spatial model')
 # birds_abund_covs_noLargePatches$Veg_cat <- relevel(birds_abund_covs_noLargePatches$Veg_cat, ref = "n")
 ```
 
+# Hill 0: Richness, Top model and plots 
+```R 
+# This is the best model
+hill_rich10re <-  glmmTMB(richness ~ Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+
+# Save the top model output
+hill_richsummary <- summary(hill_rich10re)
+# Extract the coefficients table (fixed effects as an example)
+coefficients_table <- as.data.frame(hill_richsummary$coefficients$cond) # for conditional effects
+# If you want to save random effects or other parts, adjust accordingly
+coefficients_table
+# Save the coefficients table to a CSV file
+write.csv(coefficients_table, file.path("2_Outputs/Taxonomic", "hill_rich_top_model_summary.csv"), row.names=TRUE)
+
+## Retyring to predict data and plot
+# exlcude the ranodm effects
+hill_rich_no_re <- glmmTMB(richness ~ Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+summary(hill_rich_no_re)
+# Create a new data frame for predictions
+predict_data_age2 <- data.frame(
+  Dist_near_forest = mean(birds_abund_covs_noLargePatches$Dist_near_forest, na.rm = TRUE),
+  Year_since_logging = mean(birds_abund_covs_noLargePatches$Year_since_logging, na.rm = TRUE),
+  Year_since_logging2 = seq(min(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), 
+                           max(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), length.out = 367))
+predict_data_age2$Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2)
+
+# Predict using the model without the random effect
+predicted_no_re <- predict(hill_rich_no_re, newdata = predict_data_age2, type = "response", se.fit = TRUE)
+
+# Add predictions and confidence intervals to the data frame
+predict_data_age2$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
+predict_data_age2$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
+predict_data_age2$predicted <- predicted_no_re$fit
+View(predict_data_age2)
+
+# Plotting harvest age
+# Scaled back
+predict_data_age2$Original_Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2) * 22
+
+# Update plotting code
+Age2_plot_scaled <- predict_data_age2 %>%
+  ggplot(aes(x = Original_Year_since_logging, y = predicted, group = 1)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
+  geom_line() +
+  geom_point(data = birds_abund_covs_noLargePatches, 
+            aes(x = Year_since_logging * 22, y = richness, group = 1), 
+            size = 0.5,
+            alpha = .3,
+            position = "jitter") + # Adjust for actual data points if necessary
+  theme_minimal() +
+  ylab("Species richness") +
+  xlab("Year since logging") +
+  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
+  scale_x_continuous(limits = c(0, 22)) + # Explicitly set x-axis limits
+  theme(legend.position = "none", 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14))
+# ?geom_point
+print(Age2_plot_scaled)
+
+ggsave(filename = file.path("2_Outputs/Taxonomic", "Species richness and year since logging2.png"), plot = Age2_plot_scaled, width = 5, height = 4)
+
+# Distance plot
+# Create a new data frame for distance predictions
+predict_data_distance <- data.frame(
+  Dist_near_forest = seq(min(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), 
+                           max(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), length.out = 367),
+  Year_since_logging = mean(birds_abund_covs_noLargePatches$Year_since_logging, na.rm = TRUE),
+  Year_since_logging2 = mean(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE))
+
+# Predict using the model without the random effect
+predicted_no_re <- predict(hill_rich_no_re, newdata = predict_data_distance, type = "response", se.fit = TRUE)
+
+# Add predictions and confidence intervals to the data frame
+predict_data_distance$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
+predict_data_distance$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
+predict_data_distance$predicted <- predicted_no_re$fit
+# View(predict_data_age2)
+
+predict_data_distance$Original_distance <- predict_data_distance$Dist_near_forest * 986
+
+distance_plot_scaled <- predict_data_distance %>%
+  ggplot(aes(x = Original_distance, y = predicted, group = 1)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
+  geom_line() +
+  geom_point(data = birds_abund_covs_noLargePatches, 
+            aes(x = Dist_near_forest * 986, y = richness, group = 1), 
+            size = 0.5,
+            alpha = .3,
+            position = "jitter") + # Adjust for actual data points if necessary
+  theme_minimal() +
+  ylab("Species richness") +
+  xlab("Distance nearest unharvest forest (m)") +
+  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
+  scale_x_continuous(limits = c(0, 750)) + # Explicitly set x-axis limits
+  theme(legend.position = "none", 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14))
+# ?geom_point
+print(distance_plot_scaled)
+
+ggsave(filename = file.path("2_Outputs/Taxonomic", "Species richness and distance forest.png"), plot = distance_plot_scaled, width = 5, height = 4)
+
+# plot_model(hill_rich5re, "est")
+# plot_model(distance_forest_3, type = "std")
+```
+# Hill 1: testing models
+Hill 1 is the Shannon entropy
+```R
+
+birds_abund_covs_noLargePatches$Sentropy
+hill_richnull <- glmmTMB(Sentropy ~ Patch,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_richnull)
+AIC(hill_richnull) # 1782.918
+
+hill_rich00 <- glmmTMB(Sentropy ~ RETN_m2,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich00)
+AIC(hill_rich00) # 1782.58
+
+hill_rich0 <- glmmTMB(Sentropy ~ RETN_m2 + Year_since_logging,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich0)
+AIC(hill_rich0) # 1774.027
+
+# edge better by 0.5 than RETN_m2
+hill_rich0b <- glmmTMB(Sentropy ~ Edge + Year_since_logging,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich0b)
+AIC(hill_rich0b) # 1773.545
+
+# worse when including Veg_cat
+hill_rich1 <- glmmTMB(Sentropy ~ RETN_m2 + Year_since_logging  + Veg_cat,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich1)
+AIC(hill_rich1) # 1776.263
+
+# best so far
+hill_rich2 <- glmmTMB(Sentropy ~ RETN_m2 + Year_since_logging  + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich2)
+AIC(hill_rich2) #[1] 1770.627
+
+# same as best so far
+hill_rich2b <- glmmTMB(Sentropy ~ Edge + Year_since_logging  + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich2b)
+AIC(hill_rich2b) # 1770.396
+
+# same as best
+hill_rich3 <- glmmTMB(Sentropy ~ RETN_m2 + Year_since_logging + poly(Year_since_logging2) + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich3)
+AIC(hill_rich3) # 1770.119
+r.squaredGLMM(hill_rich3) # R2c 
+
+# same as best
+hill_rich3b <- glmmTMB(Sentropy ~ Edge + Year_since_logging + poly(Year_since_logging2) + Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich3b)
+AIC(hill_rich3b) # 1769.887
+
+# New best
+hill_rich4 <- glmmTMB(Sentropy ~ RETN_m2 + Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich4)
+AIC(hill_rich4) # 1768.084
+# r.squaredGLMM(diversity_glm3a) # 0.04283247
+# plot(simulateResiduals(diversity_glm3a)) # Residuals are good.
+
+# New new best
+hill_rich4b <- glmmTMB(Sentropy ~ Edge + Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich4b)
+AIC(hill_rich4b) # 1767.843
+r.squaredGLMM(hill_rich4b) # 0.05146281, 0.05146281
+plot(simulateResiduals(hill_rich4b)) # Residuals are good.
+
+# same as best
+hill_rich5 <- glmmTMB(Sentropy ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich5)
+AIC(hill_rich5) # 1767.213
+r.squaredGLMM(hill_rich5) # 0.05825358 0.05825358
+plot(simulateResiduals(hill_rich5)) # Residuals are good.
+
+# Same AIC as top model
+hill_rich5b <- glmmTMB(Sentropy ~ Edge + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich5b)
+AIC(hill_rich5b) #1767.004
+r.squaredGLMM(hill_rich5b) # 0.05878968 0.05878968
+plot(simulateResiduals(hill_rich5b)) # Residuals are good.
+
+# worse
+hill_rich6 <- glmmTMB(Sentropy ~ Edge + Patch*Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich6)
+AIC(hill_rich6) # 1771.786
+
+# worse
+hill_rich6b <- glmmTMB(Sentropy ~ RETN_m2 + Patch*Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich6b)
+AIC(hill_rich6b) #  1772.068
+
+# worse
+hill_rich7a <- glmmTMB(Sentropy ~ RETN_m2 + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich7a)
+AIC(hill_rich7a) # 1773.118
+r.squaredGLMM(hill_rich7a) # lognormal R2m = 0.10408461
+plot(simulateResiduals(hill_rich7a)) # Minor dispersion issues
+
+# worse AIC
+hill_rich7aa <- glmmTMB(Sentropy ~ RETN_m2 + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich7aa)
+AIC(hill_rich7aa) # 1772.275
+r.squaredGLMM(hill_rich7aa) # lognormal R2m = 0.11262006
+plot(simulateResiduals(hill_rich7aa)) # Minor dispersion issues
+
+# worse aic
+hill_rich7b <- glmmTMB(Sentropy ~ Edge + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich7b)
+AIC(hill_rich7b) # 1774.713
+r.squaredGLMM(hill_rich7b) # lognormal R2m = 0.10504981
+plot(simulateResiduals(hill_rich7b)) # Minor dispersion issues
+
+# worse aic
+hill_rich7bb <- glmmTMB(Sentropy ~ Edge + Patch*Year_since_logging + Patch*Veg_cat + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich7bb)
+AIC(hill_rich7bb) # 1771.969
+r.squaredGLMM(hill_rich7bb) # lognormal R2m = 0.1070286
+plot(simulateResiduals(hill_rich7bb)) # Dispersion 
+
+```
+
+# Hill1: comparing top models 
+```R 
+# New new best
+hill_rich4b <- glmmTMB(Sentropy ~ Edge + Year_since_logging + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich4b)
+AIC(hill_rich4b) # 1767.843
+r.squaredGLMM(hill_rich4b) # 0.05146281, 0.05146281
+plot(simulateResiduals(hill_rich4b)) # Residuals are good.
+
+# same as best
+hill_rich5 <- glmmTMB(Sentropy ~ RETN_m2 + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich5)
+AIC(hill_rich5) # 1767.213
+r.squaredGLMM(hill_rich5) # 0.05825358 0.05825358
+plot(simulateResiduals(hill_rich5)) # Residuals are good.
+
+# Same AIC as top model
+hill_rich5b <- glmmTMB(Sentropy ~ Edge + Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich5b)
+AIC(hill_rich5b) #1767.004
+r.squaredGLMM(hill_rich5b) # 0.05878968 0.05878968
+plot(simulateResiduals(hill_rich5b)) # Residuals are good.
+
+# best
+hill_rich10 <- glmmTMB(Sentropy ~ Edge + poly(Year_since_logging2) + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich10)
+AIC(hill_rich10) # 1765.628
+r.squaredGLMM(hill_rich10) #0.05718595 0.05718595
+plot(simulateResiduals(hill_rich10)) # Residuals are good.
+
+hill_rich10re <- glmmTMB(Sentropy ~ Edge + poly(Year_since_logging2) + Dist_near_forest + (1|location),
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich10re)
+AIC(hill_rich10re) # 1767.628
+r.squaredGLMM(hill_rich10re) # 0.05718459 0.8933991
+plot(simulateResiduals(hill_rich10re)) # Residuals are good.
+
+hill_rich11 <- glmmTMB(Sentropy ~ poly(Year_since_logging2) + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+summary(hill_rich11)
+AIC(hill_rich11) # 1763.85
+r.squaredGLMM(hill_rich11) # 0.05661373 0.05661373
+plot(simulateResiduals(hill_rich11)) # Residuals are good.
+
+```
+
+# Hill 1: Plotting top model 
+```R 
+hill_rich10 <- glmmTMB(Sentropy ~ Edge + poly(Year_since_logging2) + Dist_near_forest,
+                        data = birds_abund_covs_noLargePatches,
+                        family = gaussian)
+r.squaredGLMM(hill_rich10) # 0.05718595 0.05718595
+  # Save the top model output
+hill_rich10_summary <- summary(hill_rich10)
+hill_rich10_summary
+# Extract the coefficients table (fixed effects as an example)
+coefficients_table <- as.data.frame(hill_rich10_summary$coefficients$cond) # for conditional effects
+coefficients_table
+
+# Save the coefficients table to a CSV file
+write.csv(coefficients_table, file.path("2_Outputs/Taxonomic", "hill_shannon_entropy_summary.csv"), row.names=TRUE)
+
+# Create a new data frame for predictions
+predict_data_age2 <- data.frame(
+  Edge = mean(birds_abund_covs_noLargePatches$Edge, na.rm = TRUE),
+  Dist_near_forest = mean(birds_abund_covs_noLargePatches$Dist_near_forest, na.rm = TRUE),
+  Year_since_logging2 = seq(min(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), 
+                           max(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), length.out = 367))
+predict_data_age2$Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2)
+
+# Predict using the model without a random effect
+predicted_no_re <- predict(hill_rich10, newdata = predict_data_age2, type = "response", se.fit = TRUE)
+
+# Add predictions and confidence intervals to the data frame
+predict_data_age2$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
+predict_data_age2$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
+predict_data_age2$predicted <- predicted_no_re$fit
+# View(predict_data_age2)
+
+# Plotting harvest age
+# Scaled back
+predict_data_age2$Original_Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2) * 22
+
+# Update plotting code
+Age2_plot_scaled <- predict_data_age2 %>%
+  ggplot(aes(x = Original_Year_since_logging, y = predicted, group = 1)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
+  geom_line() +
+  geom_point(data = birds_abund_covs_noLargePatches, 
+            aes(x = Year_since_logging * 22, y = Sentropy, group = 1), 
+            size = 0.5,
+            alpha = .3,
+            position = "jitter") + # Adjust for actual data points if necessary
+  theme_minimal() +
+  ylab("Shanon entropy") +
+  xlab("Year since logging") +
+  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
+  scale_x_continuous(limits = c(0, 22)) + # Explicitly set x-axis limits
+  theme(legend.position = "none", 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14))
+# ?geom_point
+print(Age2_plot_scaled)
+
+ggsave(filename = file.path("2_Outputs/Taxonomic", "Shanon entropy and year since logging2.png"), plot = Age2_plot_scaled, width = 5, height = 4)
+
+# Distance plot
+# Create a new data frame for distance predictions
+predict_data_distance <- data.frame(
+  Dist_near_forest = seq(min(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), 
+                           max(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), length.out = 367),
+  Edge = mean(birds_abund_covs_noLargePatches$Edge, na.rm = TRUE),
+  Year_since_logging2 = mean(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE))
+
+# Predict using the model without the random effect
+predicted_no_re <- predict(hill_rich10, newdata = predict_data_distance, type = "response", se.fit = TRUE)
+
+# Add predictions and confidence intervals to the data frame
+predict_data_distance$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
+predict_data_distance$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
+predict_data_distance$predicted <- predicted_no_re$fit
+# View(predict_data_age2)
+
+predict_data_distance$Original_distance <- predict_data_distance$Dist_near_forest * 986
+
+distance_plot_scaled <- predict_data_distance %>%
+  ggplot(aes(x = Original_distance, y = predicted, group = 1)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
+  geom_line() +
+  geom_point(data = birds_abund_covs_noLargePatches, 
+            aes(x = Dist_near_forest * 986, y = Sentropy, group = 1), 
+            size = 0.5,
+            alpha = .3,
+            position = "jitter") + # Adjust for actual data points if necessary
+  theme_minimal() +
+  ylab("Shannon entropy") +
+  xlab("Distance nearest unharvest forest (m)") +
+  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
+  scale_x_continuous(limits = c(0, 750)) + # Explicitly set x-axis limits
+  theme(legend.position = "none", 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14))
+# ?geom_point
+print(distance_plot_scaled)
+
+ggsave(filename = file.path("2_Outputs/Taxonomic", "Shanon entropy and distance forest.png"), plot = distance_plot_scaled, width = 5, height = 4)
+                 
+
+```
 
 # GAM on the non-linear effect of age: richness
 ```R
@@ -849,6 +1171,8 @@ BTNW <- birds_abund_covs_positives |>
 View(BTNW)
 write.csv(INF, file.path("0_Data/Processed", 'sites with no detections & no bad weather.csv'))
 ```
+
+
 
 # dbRDA 
 ```R
