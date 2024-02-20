@@ -50,7 +50,7 @@ dist_to_forest <- select(dist_to_forest, location, Dist_near_forest)
 covariates <- merge(covariates, dist_to_forest, by = "location")
 
 nrow(birds_abund) # 407
-
+max(covariates$RETN_m2)
 # Calculate the Shannon diversity index
 community_matrix <- birds_abund[, 6:ncol(birds_abund)]
 
@@ -622,7 +622,7 @@ predict_data_age2 <- data.frame(
   Year_since_logging = mean(birds_abund_covs_noLargePatches$Year_since_logging, na.rm = TRUE),
   Year_since_logging2 = seq(min(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), 
                            max(birds_abund_covs_noLargePatches$Year_since_logging2, na.rm = TRUE), length.out = 367))
-predict_data_age2$Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2)
+# predict_data_age2$Year_since_logging <- sqrt(predict_data_age2$Year_since_logging2)
 
 # Predict using the model without the random effect
 predicted_no_re <- predict(hill_rich_no_re, newdata = predict_data_age2, type = "response", se.fit = TRUE)

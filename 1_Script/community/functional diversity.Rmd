@@ -13,7 +13,6 @@ Laliberté, E.; Legendre, P.; Shipley, B. FD: Measuring Functional Diversity fro
 Trait data can be accessed in R using https://github.com/RS-eco/traitdata.
 
 # Load packages
-
 ```R 
 # Get functional traits from the traitdata package
 # install.packages("r2glmm")
@@ -35,14 +34,16 @@ library(sjPlot)
 library(MuMIn)
 library(r2glmm)
 library(lme4)
-
+library(dampack)
+library(car)
+library(MuMIn)
+library(glue)
 ```
 
 # Community metrics
 
 ## Calculate Diversity
 Calculate functional diversity using the `FD` package in R:
-
 ```R
 #Setup ----
 
@@ -436,7 +437,7 @@ summary(Func_diversity_glm6)
 ```R  
 Func_diversity_glm3 <- glmmTMB(FDiv ~ RETN_m2 + Year_since_logging + Dist_near_forest,
                         data = FuncDiv_Covs,
-                        family = gaussian)
+                        family = Gamma(link=log))
 AIC(Func_diversity_glm3) # [1] -919.9633
 summary(Func_diversity_glm3)
 r.squaredGLMM(Func_diversity_glm3) #0.01015494 0.01015494
@@ -713,96 +714,533 @@ ggsave(filename = file.path("2_Outputs/Functional", "Functional richness and Edg
 
 ## Functional evenness: testing models
 ```R 
-names(FuncDiv_Covs)
+hist(FuncDiv_Covs_no_na$FEvelogit)
+FuncDiv_Covs_no_na <- FuncDiv_Covs %>% drop_na()
+gamma_params(mean(FuncDiv_Covs_no_na$FEve2), sd(FuncDiv_Covs_no_na$FEve2), scale = FALSE)
+beta_params(mean(FuncDiv_Covs_no_na$FEve2), sd(FuncDiv_Covs_no_na$FEve2))
+
+hist(rgamma(n = 400, shape = 380, rate = 417))
+hist(rbeta(n= 400, shape1 = 33, shape2 = 3.2))
+?rbeta
+?gamma_params
+FuncDiv_Covs_no_na$FEve2 <- sqrt(FuncDiv_Covs_no_na$FEve)
+FuncDiv_Covs_no_na$FEve
+
+FuncDiv_Covs_no_na$FEvelogit <- logit(FuncDiv_Covs_no_na$FEve)
 
 Func_diversity_glm0 <- glmmTMB(FEve ~ Edge,
                         data = FuncDiv_Covs,
-                        family = gaussian)
+                        family = Gamma(link=log))
 AIC(Func_diversity_glm0) # -745.113
 summary(Func_diversity_glm0)
+plot(simulateResiduals(Func_diversity_glm0)) # residuasl have issues
 
 # Best model so far
-Func_diversity_glm0b <- glmmTMB(FEve ~ RETN_m2,
-                        data = FuncDiv_Covs,
-                        family = gaussian)
+Func_diversity_glm0b <- glmmTMB(FEve ~ RETN_m2 + (1|location),
+                        data = FuncDiv_Covs_no_na,
+                        family = beta_family(link="logit"))
 AIC(Func_diversity_glm0b) # -746.3939
 summary(Func_diversity_glm0b)
-
+plot(simulateResiduals(Func_diversity_glm0b))
+?glmmTMB
+# Best so far
 Func_diversity_glm1 <- glmmTMB(FEve ~ Edge + Year_since_logging,
-                        data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm1) # -924.1918
+                        data = FuncDiv_Covs_no_na,
+                        family = beta_family(link="logit"))
+AIC(Func_diversity_glm1) # -743.3524
 summary(Func_diversity_glm1)
+plot(simulateResiduals(Func_diversity_glm1))
 
-# Top model
-Func_diversity_glm1b <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging,
-                        data = FuncDiv_Covs,
+Func_diversity_glm1b <- glmmTMB(FEvelogit ~ RETN_m2 + Year_since_logging,
+                        data = FuncDiv_Covs_no_na,
                         family = gaussian)
-AIC(Func_diversity_glm1b) # -921.6
+AIC(Func_diversity_glm1b) # -744.5948
 summary(Func_diversity_glm1b)
+plot(simulateResiduals(Func_diversity_glm1b))
 
+# Best
 Func_diversity_glm2 <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging + Veg_cat,
                         data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm2) # [1] -931.7684
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm2) # -740.6377
 summary(Func_diversity_glm2)
+
+# Same as top model
+Func_diversity_glm2b <- glmmTMB(FEve ~ Edge + Year_since_logging + Veg_cat,
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm2b) # -739.3941
+summary(Func_diversity_glm2b)
 
 # Best model so far
 Func_diversity_glm3 <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging + Dist_near_forest,
                         data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm3) # [1] -919.9633
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm3) # -744.5676
 summary(Func_diversity_glm3)
 
 Func_diversity_glm3b <- glmmTMB(FEve ~ Edge + Year_since_logging + Dist_near_forest,
                         data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm3b) # -922.4232
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm3b) # -743.234
 summary(Func_diversity_glm3b)
+plot(simulateResiduals(Func_diversity_glm3b)) # residuasl have issues
+
 
 # Worse
 Func_diversity_glm4 <- glmmTMB(FEve ~ RETN_m2 + Dist_near_forest,
                         data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm4) # -921.9633
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm4) # -746.3677
 summary(Func_diversity_glm4)
 
 Func_diversity_glm5 <- glmmTMB(FEve ~ Edge + Year_since_logging + poly(Year_since_logging2),
                         data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm5) # -925.2
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm5) # -741.5367
 summary(Func_diversity_glm5)
 
-# better AIC, but nothing sig
+# 
 Func_diversity_glm6 <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Dist_near_forest ,
                         data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm6) # -916.9502
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm6) # -740.7507
 summary(Func_diversity_glm6)
 
+# Same as top model
 Func_diversity_glm6b <- glmmTMB(FEve ~ Edge + Year_since_logging*Patch + Dist_near_forest ,
                         data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm6b) # -918.4892
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm6b) # -739.9092
 summary(Func_diversity_glm6b)
+plot(simulateResiduals(Func_diversity_glm6b)) # residuasl have issues
 
+# New best
 Func_diversity_glm6 <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Dist_near_forest + Veg_cat,
                         data = FuncDiv_Covs,
-                        family = gaussian)
-AIC(Func_diversity_glm6) # -926.5568
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm6) # -736.73
 summary(Func_diversity_glm6)
+
+# Same as top
+Func_diversity_glm6b <- glmmTMB(FEve ~ Edge + Year_since_logging*Patch + Dist_near_forest + Veg_cat,
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm6b) # -735.9629
+summary(Func_diversity_glm6b)
+
+# same as top
+Func_diversity_glm7 <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Veg_cat,
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm7) # -737.0806
+summary(Func_diversity_glm7)
+
+# same as top
+Func_diversity_glm7b <- glmmTMB(FEve ~ Edge + Year_since_logging*Patch + Veg_cat,
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm7b) # -736.3906
+summary(Func_diversity_glm7b)
+
+# New best
+Func_diversity_glm8b <- glmmTMB(FEve ~ Edge + Year_since_logging*Patch + Veg_cat*Patch,
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm8b) # -733.0898
+summary(Func_diversity_glm8b)
+
+Func_diversity_glm8a <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Veg_cat*Patch,
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm8a) # -733.7924
+summary(Func_diversity_glm8a)
+
+Func_diversity_glm9 <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging + Veg_cat*Patch,
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm9) # -735.593
+summary(Func_diversity_glm9)
+
+Func_diversity_glm9b <- glmmTMB(FEve ~ Edge + Year_since_logging + Veg_cat*Patch,
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm9b) # -734.868
+summary(Func_diversity_glm9b)
+
+Func_diversity_glm10 <- glmmTMB(FEve ~ Edge + Year_since_logging + Veg_cat*Patch + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm10) # -733.255
+summary(Func_diversity_glm10)
+
+Func_diversity_glm11 <- glmmTMB(FEve ~ Edge + Veg_cat*Patch + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm11) # -734.8162
+summary(Func_diversity_glm11)
+
+Func_diversity_glm12 <- glmmTMB(FEve ~ Edge + Veg_cat*Patch + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = Gamma(link=log))
+AIC(Func_diversity_glm11) # -734.8162
+summary(Func_diversity_glm11)
 
 ```
 
-# Single species metrics: Patch area
+## Functional divergenge: comparing top models
+```R 
+# New best
+Func_diversity_glm8b <- glmmTMB(FEve ~ Edge + Year_since_logging*Patch + Veg_cat*Patch,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm8b) # -733.0898
+summary(Func_diversity_glm8b)
+r.squaredGLMM(Func_diversity_glm8b) # 0.02819857 0.02819857
+plot(simulateResiduals(Func_diversity_glm8b)) # residuals have some issues
+
+Func_diversity_glm8a <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Veg_cat*Patch,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm8a) # -733.7924
+summary(Func_diversity_glm8a)
+r.squaredGLMM(Func_diversity_glm8a) # 0.03017532 0.03017532
+plot(simulateResiduals(Func_diversity_glm8a)) ## residuals have some issues
+
+Func_diversity_glm9b <- glmmTMB(FEve ~ Edge + Year_since_logging + Veg_cat*Patch,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm9b) # -734.868
+summary(Func_diversity_glm9b)
+r.squaredGLMM(Func_diversity_glm9b) # 0.02757374 0.02757374
+plot(simulateResiduals(Func_diversity_glm9b)) # residuals have some issues
+
+Func_diversity_glm9bre <- glmmTMB(FEve ~ Edge + Year_since_logging + Veg_cat*Patch + (1|location),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm9bre) # -732.868
+summary(Func_diversity_glm9bre)
+r.squaredGLMM(Func_diversity_glm9bre) # 0.02757358 0.330473
+plot(simulateResiduals(Func_diversity_glm9bre)) # stil issues in the residuals
+
+Func_diversity_glm10 <- glmmTMB(FEve ~ Edge + Year_since_logging + Veg_cat*Patch + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm10) # -733.255
+summary(Func_diversity_glm10)
+r.squaredGLMM(Func_diversity_glm10) #  0.02866387 0.02866387
+plot(simulateResiduals(Func_diversity_glm10)) # residuals have some issues
+
+Func_diversity_glm11 <- glmmTMB(FEve ~ Edge + Veg_cat*Patch + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm11) # -734.8162
+summary(Func_diversity_glm11)
+r.squaredGLMM(Func_diversity_glm11) # 0.02742791 0.027427
+plot(simulateResiduals(Func_diversity_glm11)) # residuals  have some issues
+
+
+
+```
+
+# Single species metrics
+## Load data
+```R  
+abundance <- read_csv("0_Data/Processed/community_abundance_by_location.csv")
+covariates <- read_csv("0_Data/Processed/covariates_prepped_comm.csv")
+max(covariates$RETN_m2)
+Abund_Covs <- merge(abundance, covariates, by = "location")
+```
 
 Out of 18 species, Patch Area is positive for 3: LEFL, WAVI, YEWA.
+## Dredge for each species
+```R 
+sum(is.na(Abund_Covs)) # 3 Nas
+Abund_Covs <- Abund_Covs %>% drop_na()
+Abund_Covs$Veg_cat <- as_factor(Abund_Covs$Veg_cat)
+Abund_Covs$Patch <- as_factor(Abund_Covs$Patch)
+View(Abund_Covs)
+length(Abund_Covs$Year_since_logging2)#366
+species_list <- c("ALFL", 'AMRE', 'BTNW', 'CHSP', 'COYE', 'HETH', 'LEFL', 'LISP', 'MOWA', 'REVI', 'RCKI', 'WAVI', 'WTSP', 'SWTH', 'YEWA', 'YRWA', 'TEWA', 'OSFL')
+
+options(na.action = "na.fail") # There are no Nas in the dataset, so this just ensures the dredge() function behaves as expected
+
+for (bird in species_list) {
+  edge_formula_str <- paste(bird, "~  poly(Year_since_logging2) + Year_since_logging:Patch + Dist_near_forest + Edge + Veg_cat + Year_since_logging + Patch")
+  edge_gm <- glm(as.formula(edge_formula_str), 
+                 data = Abund_Covs, 
+                 family = poisson)            
+  
+  area_formula_str <- paste(bird, "~ poly(Year_since_logging2) + Year_since_logging:Patch + Dist_near_forest + RETN_m2 + Veg_cat + Year_since_logging + Patch")
+  area_gm <- glm(as.formula(area_formula_str),
+                data = Abund_Covs,
+                family = poisson)
+  
+  dredge_edge <- dredge(global.model = edge_gm, rank = 'AICc', extra = list(
+    "R^2", "*" = function(x) {
+        s <- summary(x)
+        c(Rsq = s$r.squared, adjRsq = s$adj.r.squared,
+            F = s$fstatistic[[1]])
+    }))
+
+  dredge_area <- dredge(global.model = area_gm, rank = 'AICc', extra = list(
+    "R^2", "*" = function(x) {
+        s <- summary(x)
+        c(Rsq = s$r.squared, adjRsq = s$adj.r.squared,
+            F = s$fstatistic[[1]])
+    }))
+
+  edge_top <- subset(dredge_edge, delta < 2)
+  edge_top <- as.data.frame(edge_top)
+
+  area_top <- subset(dredge_area, delta < 2)
+  area_top <- as.data.frame(area_top)
+
+  write.csv(edge_top, glue("2_Outputs/Single species/Dredge tables/{bird}_edge.csv"))
+  write.csv(area_top, glue("2_Outputs/Single species/Dredge tables/{bird}_area.csv"))
+}
+```
+
+## Top models for each species
+Covariates to choose from:
+poly(Year_since_logging2) + Year_since_logging*Patch + Dist_near_forest + RETN_m2 + Veg_cat
+```R 
+ALFL <- glmmTMB(ALFL ~ Dist_near_forest + poly(Year_since_logging2) + Year_since_logging*Patch,
+                data = Abund_Covs,
+                family = poisson)
+# summary(ALFL)
+AIC(ALFL)
+plot(simulateResiduals(ALFL)) # residuals good
+coefficients_table <- as.data.frame(summary(ALFL)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "ALFL_summary.csv"), row.names=TRUE)
+
+AMRE <- glmmTMB(AMRE ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat +Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(AMRE)
+plot(simulateResiduals(AMRE)) # residuals good
+coefficients_table <- as.data.frame(summary(AMRE)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "AMRE_summary.csv"), row.names=TRUE)
+
+# No BTWN: models did not converge, and doesnt make that much sense. Too sensitive.
+
+CHSP <- glmmTMB(CHSP ~ Dist_near_forest + poly(Year_since_logging2) +Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(CHSP)
+plot(simulateResiduals(CHSP)) # residuals good
+coefficients_table <- as.data.frame(summary(CHSP)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "CHSP_summary.csv"), row.names=TRUE)
+
+COYE <- glmmTMB(COYE ~ Dist_near_forest + poly(Year_since_logging2) +Veg_cat +Year_since_logging*Patch,
+                data = Abund_Covs,
+                family = poisson)
+summary(COYE)
+plot(simulateResiduals(COYE)) # residuals good
+coefficients_table <- as.data.frame(summary(COYE)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "COYE_summary.csv"), row.names=TRUE)
+
+HETH <- glmmTMB(HETH ~ Dist_near_forest + Edge + poly(Year_since_logging2) +Veg_cat +Year_since_logging+Patch,
+                data = Abund_Covs,
+                family = poisson)
+summary(HETH)
+plot(simulateResiduals(HETH)) # residuals good
+coefficients_table <- as.data.frame(summary(HETH)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "HETH_summary.csv"), row.names=TRUE)
+
+LEFL <- glmmTMB(LEFL ~ Dist_near_forest + RETN_m2 +Veg_cat +Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(LEFL)
+plot(simulateResiduals(LEFL)) # residuals good
+coefficients_table <- as.data.frame(summary(LEFL)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "LEFL_summary.csv"), row.names=TRUE)
+
+LISP <- glmmTMB(LISP ~ Patch + poly(Year_since_logging2) +Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(LISP)
+plot(simulateResiduals(LISP)) # residuals good
+coefficients_table <- as.data.frame(summary(LISP)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "LISP_summary.csv"), row.names=TRUE)
+
+MOWA <- glmmTMB(MOWA ~ poly(Year_since_logging2) + RETN_m2 + Veg_cat,
+                data = Abund_Covs,
+                family = poisson)
+summary(MOWA)
+plot(simulateResiduals(MOWA)) # residuals good
+coefficients_table <- as.data.frame(summary(MOWA)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "MOWA_summary.csv"), row.names=TRUE)
+
+OSFL <- glmmTMB(OSFL ~ Dist_near_forest + Edge + Veg_cat + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(OSFL)
+plot(simulateResiduals(OSFL)) # residuals good
+coefficients_table <- as.data.frame(summary(OSFL)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "OSFL_summary.csv"), row.names=TRUE)
+
+OSFL <- glmmTMB(OSFL ~ Dist_near_forest + Edge + Veg_cat + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(OSFL)
+plot(simulateResiduals(OSFL)) # residuals good
+coefficients_table <- as.data.frame(summary(OSFL)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "OSFL_summary.csv"), row.names=TRUE)
+
+RCKI <- glmmTMB(RCKI ~ Dist_near_forest + Edge + Patch + poly(Year_since_logging2) + Veg_cat + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(RCKI)
+plot(simulateResiduals(RCKI)) # residuals good
+coefficients_table <- as.data.frame(summary(RCKI)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "RCKI_summary.csv"), row.names=TRUE)
+
+REVI <- glmmTMB(REVI ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(REVI)
+plot(simulateResiduals(REVI)) # residuals good
+coefficients_table <- as.data.frame(summary(REVI)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "REVI_summary.csv"), row.names=TRUE)
+
+SWTH <- glmmTMB(SWTH ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(SWTH)
+plot(simulateResiduals(SWTH)) # residuals good
+coefficients_table <- as.data.frame(summary(SWTH)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "SWTH_summary.csv"), row.names=TRUE)
+
+TEWA <- glmmTMB(TEWA ~ Dist_near_forest + RETN_m2 + poly(Year_since_logging2) + Veg_cat + Year_since_logging*Patch,
+                data = Abund_Covs,
+                family = poisson)
+summary(TEWA)
+plot(simulateResiduals(TEWA)) # residuals good
+coefficients_table <- as.data.frame(summary(TEWA)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "TEWA_summary.csv"), row.names=TRUE)
+
+WAVI <- glmmTMB(WAVI ~ Dist_near_forest + RETN_m2,
+                data = Abund_Covs,
+                family = poisson)
+summary(WAVI)
+plot(simulateResiduals(WAVI)) # residuals good
+coefficients_table <- as.data.frame(summary(WAVI)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "WAVI_summary.csv"), row.names=TRUE)
+
+WTSP <- glmmTMB(WTSP ~ Dist_near_forest + Edge + poly(Year_since_logging2) + Veg_cat + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(WTSP)
+plot(simulateResiduals(WTSP)) # residuals good
+coefficients_table <- as.data.frame(summary(WTSP)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "WTSP_summary.csv"), row.names=TRUE)
+
+YEWA <- glmmTMB(YEWA ~ RETN_m2 + Veg_cat + Patch,
+                data = Abund_Covs,
+                family = poisson)
+summary(YEWA)
+plot(simulateResiduals(YEWA)) # residuals good
+coefficients_table <- as.data.frame(summary(YEWA)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "YEWA_summary.csv"), row.names=TRUE)
+
+YRWA <- glmmTMB(YRWA ~ Dist_near_forest + Edge + poly(Year_since_logging2) + Veg_cat + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+summary(YRWA)
+plot(simulateResiduals(YRWA)) # residuals good
+coefficients_table <- as.data.frame(summary(YRWA)$coefficients$cond) 
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "YRWA_summary.csv"), row.names=TRUE)
+?glmmTMB
+
+```
+
+## Highlighted species: area plots
+```R 
+# LEFL, WAVI, YEWA for RETN_m2
+# COYE, TEWA for Year*patch
+# omit categorical veg
+LEFL <- glmmTMB(LEFL ~ Dist_near_forest + RETN_m2 + Veg_cat + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+LEFLnoveg <- glmmTMB(LEFL ~ Dist_near_forest + RETN_m2 + Year_since_logging,
+                data = Abund_Covs,
+                family = poisson)
+Abund_Covs$Patch <- as.numeric(Abund_Covs$Patch)
+WAVI <- glmmTMB(WAVI ~ Dist_near_forest + RETN_m2,
+                data = Abund_Covs,
+                family = poisson)
+
+# Create a new data frame for predictions
+# predict_data_edge <- data.frame(
+#   RETN_m2 = seq(min(Abund_Covs$RETN_m2, na.rm = TRUE), 
+#               max(Abund_Covs$RETN_m2, na.rm = TRUE), length.out = 400),
+#   Dist_near_forest = mean(Abund_Covs$Dist_near_forest, na.rm = TRUE),
+#   Year_since_logging = mean(Abund_Covs$Year_since_logging, na.rm = TRUE))
+Abund_Covs$Patch <- as.numeric(Abund_Covs$Patch)
+predict_data_edge <- data.frame(
+  RETN_m2 = seq(min(Abund_Covs$RETN_m2, na.rm = TRUE), 
+              max(Abund_Covs$Year_since_logging2, na.rm = TRUE), length.out = 400),
+  Dist_near_forest = mean(Abund_Covs$Dist_near_forest, na.rm = TRUE),
+  Year_since_logging = mean(Abund_Covs$Year_since_logging, na.rm = TRUE),
+  Year_since_logging2 = mean(Abund_Covs$Year_since_logging2, na.rm = TRUE),
+  Patch = mean(Abund_Covs$Patch, na.rm = TRUE))
+
+# Predict using the model without a random effect
+predicted_fit <- predict(COYEnoveg, newdata = predict_data_edge, type = "response", se.fit = TRUE)
+
+# Add predictions and confidence intervals to the data frame
+predict_data_edge$lwr <- predicted_fit$fit - 2*predicted_fit$se.fit
+predict_data_edge$upr <- predicted_fit$fit + 2*predicted_fit$se.fit
+predict_data_edge$predicted <- predicted_fit$fit
+
+# Scaled back
+# Assuming 'min_x' and 'max_x' are the original minimum and maximum values for your predictor
+min_x <- 0   # Replace with actual minimum if different
+max_x <- 12000  # Replace with actual maximum
+
+# Transforming the scaled values back to the original scale
+predict_data_edge$area <- lapply(predict_data_edge$RETN_m, function(scaled) {
+  (scaled * (max_x - min_x)) + min_x
+})
+predict_data_edge$area <- as.numeric(as.character(predict_data_edge$area))
+
+area_plot_scaled <- predict_data_edge %>%
+  ggplot(aes(x = area, y = predicted, group = 1)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
+  geom_line() +
+  geom_point(data = Abund_Covs, 
+            aes(x = RETN_m2 * 12000, y = COYE, group = 1), 
+            size = 0.5,
+            alpha = .3,
+            position = "jitter") +
+  theme_minimal() +
+  ylab("Common Yellowthroat abundance") +
+  xlab(expression("Area (" * m^2 * ")")) +
+  scale_x_continuous(limits = c(0, 12000)) + 
+  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
+  # scale_x_continuous(limits = c(0, 12000)) + # Explicitly set x-axis limits
+  theme(legend.position = "none", 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14))
+
+print(area_plot_scaled)
+
+ggsave(filename = file.path("2_Outputs/Single species/Area plots", "LEFL and area.png"), plot = area_plot_scaled, width = 5, height = 4)
 
 
+```
+
+## Highlighted species: harvest age plots
+```R 
+
+
+```
+
+### Other stuff, omit
 ```R 
 abundance <- read_csv("0_Data/Processed/community_abundance_by_location.csv")
 covariates <- read_csv("0_Data/Processed/covariates_prepped_comm.csv")
-View(abundance)
 Abund_Covs <- merge(abundance, covariates, by = "location")
 
 ALFL <- glmmTMB(ALFL ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
@@ -912,7 +1350,7 @@ YRWA <- glmmTMB(YRWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 
                 family = poisson)
 summary(YRWA) # AIC 570
 
-TEWA <- glmmTMB(TEWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
+TEWA <- glmmTMB(TEWA ~ poly(Year_since_logging2) + Year_since_logging*Patch + RETN_m2 + Dist_near_forest,
                 data = Abund_Covs,
                 family = poisson)
 summary(TEWA)
