@@ -38,6 +38,7 @@ library(dampack)
 library(car)
 library(MuMIn)
 library(glue)
+library(sjPlot)
 ```
 
 # Community metrics
@@ -1170,24 +1171,26 @@ Abund_Covs$Patch <- as.numeric(Abund_Covs$Patch)
 WAVI <- glmmTMB(WAVI ~ Dist_near_forest + RETN_m2,
                 data = Abund_Covs,
                 family = poisson)
-
+YEWAnoveg <- glmmTMB(YEWA ~ RETN_m2 + Patch,
+                data = Abund_Covs,
+                family = poisson)
 # Create a new data frame for predictions
-# predict_data_edge <- data.frame(
-#   RETN_m2 = seq(min(Abund_Covs$RETN_m2, na.rm = TRUE), 
-#               max(Abund_Covs$RETN_m2, na.rm = TRUE), length.out = 400),
-#   Dist_near_forest = mean(Abund_Covs$Dist_near_forest, na.rm = TRUE),
-#   Year_since_logging = mean(Abund_Covs$Year_since_logging, na.rm = TRUE))
-Abund_Covs$Patch <- as.numeric(Abund_Covs$Patch)
 predict_data_edge <- data.frame(
   RETN_m2 = seq(min(Abund_Covs$RETN_m2, na.rm = TRUE), 
-              max(Abund_Covs$Year_since_logging2, na.rm = TRUE), length.out = 400),
-  Dist_near_forest = mean(Abund_Covs$Dist_near_forest, na.rm = TRUE),
-  Year_since_logging = mean(Abund_Covs$Year_since_logging, na.rm = TRUE),
-  Year_since_logging2 = mean(Abund_Covs$Year_since_logging2, na.rm = TRUE),
+              max(Abund_Covs$RETN_m2, na.rm = TRUE), length.out = 400),
   Patch = mean(Abund_Covs$Patch, na.rm = TRUE))
 
-# Predict using the model without a random effect
-predicted_fit <- predict(COYEnoveg, newdata = predict_data_edge, type = "response", se.fit = TRUE)
+# Abund_Covs$Patch <- as.numeric(Abund_Covs$Patch)
+# predict_data_edge <- data.frame(
+#   RETN_m2 = seq(min(Abund_Covs$RETN_m2, na.rm = TRUE), 
+#               max(Abund_Covs$Year_since_logging2, na.rm = TRUE), length.out = 400),
+#   Dist_near_forest = mean(Abund_Covs$Dist_near_forest, na.rm = TRUE),
+#   Year_since_logging = mean(Abund_Covs$Year_since_logging, na.rm = TRUE),
+#   Year_since_logging2 = mean(Abund_Covs$Year_since_logging2, na.rm = TRUE),
+#   Patch = mean(Abund_Covs$Patch, na.rm = TRUE))
+
+# Predict using the model without a random effect and without categotircal 
+predicted_fit <- predict(YEWAnoveg, newdata = predict_data_edge, type = "response", se.fit = TRUE)
 
 # Add predictions and confidence intervals to the data frame
 predict_data_edge$lwr <- predicted_fit$fit - 2*predicted_fit$se.fit
@@ -1215,28 +1218,88 @@ area_plot_scaled <- predict_data_edge %>%
             alpha = .3,
             position = "jitter") +
   theme_minimal() +
-  ylab("Common Yellowthroat abundance") +
+  ylab("Yellow Warbler abundance") +
   xlab(expression("Area (" * m^2 * ")")) +
   scale_x_continuous(limits = c(0, 12000)) + 
   # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
   # scale_x_continuous(limits = c(0, 12000)) + # Explicitly set x-axis limits
   theme(legend.position = "none", 
         axis.text=element_text(size=12),
-        axis.title=element_text(size=14))
-
+        axis.title=element_text(size=14),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank())
 print(area_plot_scaled)
 
-ggsave(filename = file.path("2_Outputs/Single species/Area plots", "LEFL and area.png"), plot = area_plot_scaled, width = 5, height = 4)
-
+ggsave(filename = file.path("2_Outputs/Single species/Area plots", "YEWA and area.png"), plot = area_plot_scaled, width = 5, height = 4)
 
 ```
 
-## Highlighted species: harvest age plots
+## Highlighted species: harvest year * Patch plots
 ```R 
+COYE <- glmmTMB(COYE ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat + Year_since_logging*Patch,
+                data = Abund_Covs,
+                family = poisson)
 
+p <- plot_model(COYE, type = "int", 
+           title = "",          # Removes the plot title
+           axis.title = c("Year since harvest", "Common Yellowthroat abundance"),
+            show.legend = FALSE)
+p <- p + scale_x_continuous(breaks = seq(0, 1, length.out = 5),
+                       labels = seq(0, 22, length.out = 5)) + 
+          scale_color_manual(values = c("0" = "grey88", 
+                                  "1" = "grey37")) +              
+      theme(legend.position = "right", # Adjust the legend position: 'left', 'right', 'top', 'bottom', or c(x, y)
+        legend.title = element_text(color = "black", size = 12, face = "bold"), # Customize legend title
+        legend.text = element_text(color = "black", size = 10), # Customize legend text
+        legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid"), # Legend background
+        legend.key = element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank()
+                          ) + # Remove background of the legend keys
+  guides(fill = guide_legend(title = "Patch", # Customize legend title
+                             override.aes = list(size = 3))) # Customize legend symbols size
+print(p)
+
+
+ggsave(filename = file.path("2_Outputs/Single species/Year x Patch plots", "COYE year x patch.png"), plot = p, width = 5, height = 4)
+
+TEWA <- glmmTMB(TEWA ~ Dist_near_forest + RETN_m2 + poly(Year_since_logging2) + Veg_cat + Year_since_logging*Patch,
+                data = Abund_Covs,
+                family = poisson)
+p <- plot_model(COYE, type = "int", 
+           title = "",          # Removes the plot title
+           axis.title = c("Year since harvest", "Common Yellowthroat abundance"),
+           colors = "gs",
+            show.legend = FALSE)
+p <- p + scale_x_continuous(breaks = seq(0, 1, length.out = 5),
+                       labels = seq(0, 22, length.out = 5)) + 
+      theme(legend.position = "right", # Adjust the legend position: 'left', 'right', 'top', 'bottom', or c(x, y)
+        legend.title = element_text(color = "black", size = 12, face = "bold"), # Customize legend title
+        legend.text = element_text(color = "black", size = 10), # Customize legend text
+        legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid"), # Legend background
+        legend.key = element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank()
+                          ) + # Remove background of the legend keys
+  guides(fill = guide_legend(title = "Patch", # Customize legend title
+                             override.aes = list(size = 3))) # Customize legend symbols size
+print(p)
+ggsave(filename = file.path("2_Outputs/Single species/Year x Patch plots", "COYE year x patch.png"), plot = p, width = 5, height = 4)
 
 ```
+           theme = sjPlot::theme_sjplot() + 
+                   theme(plot.title = element_blank(),  # Ensure the title is removed
+                         axis.title.x = element_text(size = 26, face = "bold"), # Customize x axis title appearance
+                         axis.title.y = element_text(size = 12, face = "bold"), # Customize y axis title appearance
+                         legend.position = "right",
+                          legend.title = element_text(size = 12, face = "bold"),
+                          legend.text = element_text(size = 10),
+                          legend.background = element_rect(fill = "lightgray", linetype = "solid"),
+                          legend.key = element_blank(),
+                         panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+                          panel.background = element_blank()) +
 
+           ) 
 ### Other stuff, omit
 ```R 
 abundance <- read_csv("0_Data/Processed/community_abundance_by_location.csv")
