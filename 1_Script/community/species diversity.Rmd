@@ -1181,8 +1181,8 @@ write.csv(INF, file.path("0_Data/Processed", 'sites with no detections & no bad 
 # write.csv(birds_abund_covs_noLargePatches, file.path("0_Data/Processed", "birds_abund_covs_noLargePatches.csv"))
 # Prepare species abundance data (assuming these are the last columns, adjust as needed)
 # View(community_covs)
-# community_covs_scaled <- read.csv(file.path("0_Data/Processed", "Community_scaled.csv"))
-community_covs_scaled <- birds_abund_covs_noLargePatches
+community_covs_scaled <- read.csv(file.path("0_Data/Processed", "Community_scaled.csv"))
+# community_covs_scaled <- birds_abund_covs_noLargePatches
 
 # Select speices that are present at least 3 sites
 Species_detection_histories <- read.csv(file.path("0_Data/Processed", "species_detection_rate.csv"))

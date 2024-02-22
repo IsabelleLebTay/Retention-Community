@@ -39,6 +39,8 @@ library(car)
 library(MuMIn)
 library(glue)
 library(sjPlot)
+library(emmeans)
+library(DescTools)
 ```
 
 # Community metrics
@@ -960,7 +962,7 @@ sum(is.na(Abund_Covs)) # 3 Nas
 Abund_Covs <- Abund_Covs %>% drop_na()
 Abund_Covs$Veg_cat <- as_factor(Abund_Covs$Veg_cat)
 Abund_Covs$Patch <- as_factor(Abund_Covs$Patch)
-View(Abund_Covs)
+# View(Abund_Covs)
 length(Abund_Covs$Year_since_logging2)#366
 species_list <- c("ALFL", 'AMRE', 'BTNW', 'CHSP', 'COYE', 'HETH', 'LEFL', 'LISP', 'MOWA', 'REVI', 'RCKI', 'WAVI', 'WTSP', 'SWTH', 'YEWA', 'YRWA', 'TEWA', 'OSFL')
 
@@ -978,18 +980,23 @@ for (bird in species_list) {
                 family = poisson)
   
   dredge_edge <- dredge(global.model = edge_gm, rank = 'AICc', extra = list(
-    "R^2", "*" = function(x) {
-        s <- summary(x)
-        c(Rsq = s$r.squared, adjRsq = s$adj.r.squared,
-            F = s$fstatistic[[1]])
-    }))
+                          "adjR^2",
+                          "mcfaddR^2" = function(x) {PseudoR2(x, which = "McFaddenAdj")},
+                          "deltaR2m" = function(x) {r.squaredGLMM(x)[1]}
+                          ))
 
   dredge_area <- dredge(global.model = area_gm, rank = 'AICc', extra = list(
-    "R^2", "*" = function(x) {
-        s <- summary(x)
-        c(Rsq = s$r.squared, adjRsq = s$adj.r.squared,
-            F = s$fstatistic[[1]])
-    }))
+                          "adjR^2",
+                          "mcfaddR^2" = function(x) {PseudoR2(x, which = "McFaddenAdj")},
+                          "deltaR2m" = function(x) {r.squaredGLMM(x)[1]}
+                          ))
+
+  # dredge_area <- dredge(global.model = area_gm, rank = 'AICc', extra = list(
+  #   "R^2", "*" = function(x) {
+  #       s <- summary(x)
+  #       c(Rsq = s$r.squared, adjRsq = s$adj.r.squared,
+  #           F = s$fstatistic[[1]])
+  #   }))
 
   edge_top <- subset(dredge_edge, delta < 2)
   edge_top <- as.data.frame(edge_top)
@@ -997,8 +1004,8 @@ for (bird in species_list) {
   area_top <- subset(dredge_area, delta < 2)
   area_top <- as.data.frame(area_top)
 
-  write.csv(edge_top, glue("2_Outputs/Single species/Dredge tables/{bird}_edge.csv"))
-  write.csv(area_top, glue("2_Outputs/Single species/Dredge tables/{bird}_area.csv"))
+  write.csv(edge_top, glue("2_Outputs/Single species/Dredge tables/R2 values/{bird}_edge_R2.csv"))
+  write.csv(area_top, glue("2_Outputs/Single species/Dredge tables/R2 values/{bird}_area_R2.csv"))
 }
 ```
 
@@ -1006,10 +1013,9 @@ for (bird in species_list) {
 Covariates to choose from:
 poly(Year_since_logging2) + Year_since_logging*Patch + Dist_near_forest + RETN_m2 + Veg_cat
 ```R 
-ALFL <- glmmTMB(ALFL ~ Dist_near_forest + poly(Year_since_logging2) + Year_since_logging*Patch,
+ALFL <- glm(ALFL ~ Dist_near_forest + poly(Year_since_logging2) + Year_since_logging*Patch,
                 data = Abund_Covs,
                 family = poisson)
-# summary(ALFL)
 AIC(ALFL)
 plot(simulateResiduals(ALFL)) # residuals good
 coefficients_table <- as.data.frame(summary(ALFL)$coefficients$cond) 
@@ -1025,7 +1031,7 @@ write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summarie
 
 # No BTWN: models did not converge, and doesnt make that much sense. Too sensitive.
 
-CHSP <- glmmTMB(CHSP ~ Dist_near_forest + poly(Year_since_logging2) +Year_since_logging,
+CHSP <- glmmTMB(CHSP ~ Dist_near_forest + poly(Year_since_logging2) +Year_since_logging + Veg_cat,
                 data = Abund_Covs,
                 family = poisson)
 summary(CHSP)
@@ -1033,7 +1039,7 @@ plot(simulateResiduals(CHSP)) # residuals good
 coefficients_table <- as.data.frame(summary(CHSP)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "CHSP_summary.csv"), row.names=TRUE)
 
-COYE <- glmmTMB(COYE ~ Dist_near_forest + poly(Year_since_logging2) +Veg_cat +Year_since_logging*Patch,
+COYE <- glmmTMB(COYE ~ poly(Year_since_logging2) + Veg_cat +Year_since_logging*Patch,
                 data = Abund_Covs,
                 family = poisson)
 summary(COYE)
@@ -1049,7 +1055,7 @@ plot(simulateResiduals(HETH)) # residuals good
 coefficients_table <- as.data.frame(summary(HETH)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "HETH_summary.csv"), row.names=TRUE)
 
-LEFL <- glmmTMB(LEFL ~ Dist_near_forest + RETN_m2 +Veg_cat +Year_since_logging,
+LEFL <- glmmTMB(LEFL ~ Dist_near_forest + RETN_m2 +Veg_cat +Year_since_logging + Patch,
                 data = Abund_Covs,
                 family = poisson)
 summary(LEFL)
@@ -1057,7 +1063,7 @@ plot(simulateResiduals(LEFL)) # residuals good
 coefficients_table <- as.data.frame(summary(LEFL)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "LEFL_summary.csv"), row.names=TRUE)
 
-LISP <- glmmTMB(LISP ~ Patch + poly(Year_since_logging2) +Year_since_logging,
+LISP <- glmmTMB(LISP ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2,
                 data = Abund_Covs,
                 family = poisson)
 summary(LISP)
@@ -1065,7 +1071,7 @@ plot(simulateResiduals(LISP)) # residuals good
 coefficients_table <- as.data.frame(summary(LISP)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "LISP_summary.csv"), row.names=TRUE)
 
-MOWA <- glmmTMB(MOWA ~ poly(Year_since_logging2) + RETN_m2 + Veg_cat,
+MOWA <- glmmTMB(MOWA ~ poly(Year_since_logging2) + Veg_cat + Patch,
                 data = Abund_Covs,
                 family = poisson)
 summary(MOWA)
@@ -1073,15 +1079,7 @@ plot(simulateResiduals(MOWA)) # residuals good
 coefficients_table <- as.data.frame(summary(MOWA)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "MOWA_summary.csv"), row.names=TRUE)
 
-OSFL <- glmmTMB(OSFL ~ Dist_near_forest + Edge + Veg_cat + Year_since_logging,
-                data = Abund_Covs,
-                family = poisson)
-summary(OSFL)
-plot(simulateResiduals(OSFL)) # residuals good
-coefficients_table <- as.data.frame(summary(OSFL)$coefficients$cond) 
-write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "OSFL_summary.csv"), row.names=TRUE)
-
-OSFL <- glmmTMB(OSFL ~ Dist_near_forest + Edge + Veg_cat + Year_since_logging,
+OSFL <- glmmTMB(OSFL ~ Veg_cat,
                 data = Abund_Covs,
                 family = poisson)
 summary(OSFL)
@@ -1097,7 +1095,7 @@ plot(simulateResiduals(RCKI)) # residuals good
 coefficients_table <- as.data.frame(summary(RCKI)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "RCKI_summary.csv"), row.names=TRUE)
 
-REVI <- glmmTMB(REVI ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat + Year_since_logging,
+REVI <- glmmTMB(REVI ~ Dist_near_forest + Edge + poly(Year_since_logging2) + Veg_cat + Year_since_logging,
                 data = Abund_Covs,
                 family = poisson)
 summary(REVI)
@@ -1113,7 +1111,8 @@ plot(simulateResiduals(SWTH)) # residuals good
 coefficients_table <- as.data.frame(summary(SWTH)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "SWTH_summary.csv"), row.names=TRUE)
 
-TEWA <- glmmTMB(TEWA ~ Dist_near_forest + RETN_m2 + poly(Year_since_logging2) + Veg_cat + Year_since_logging*Patch,
+# Residuals not behaving as expected without the re. Fixed by adding the location re.
+TEWA <- glmmTMB(TEWA ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat + Year_since_logging*Patch + (1|location),
                 data = Abund_Covs,
                 family = poisson)
 summary(TEWA)
@@ -1126,6 +1125,7 @@ WAVI <- glmmTMB(WAVI ~ Dist_near_forest + RETN_m2,
                 family = poisson)
 summary(WAVI)
 plot(simulateResiduals(WAVI)) # residuals good
+r.squaredGLMM(TEWA)
 coefficients_table <- as.data.frame(summary(WAVI)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "WAVI_summary.csv"), row.names=TRUE)
 
@@ -1287,260 +1287,6 @@ print(p)
 ggsave(filename = file.path("2_Outputs/Single species/Year x Patch plots", "COYE year x patch.png"), plot = p, width = 5, height = 4)
 
 ```
-           theme = sjPlot::theme_sjplot() + 
-                   theme(plot.title = element_blank(),  # Ensure the title is removed
-                         axis.title.x = element_text(size = 26, face = "bold"), # Customize x axis title appearance
-                         axis.title.y = element_text(size = 12, face = "bold"), # Customize y axis title appearance
-                         legend.position = "right",
-                          legend.title = element_text(size = 12, face = "bold"),
-                          legend.text = element_text(size = 10),
-                          legend.background = element_rect(fill = "lightgray", linetype = "solid"),
-                          legend.key = element_blank(),
-                         panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-                          panel.background = element_blank()) +
-
-           ) 
-### Other stuff, omit
-```R 
-abundance <- read_csv("0_Data/Processed/community_abundance_by_location.csv")
-covariates <- read_csv("0_Data/Processed/covariates_prepped_comm.csv")
-Abund_Covs <- merge(abundance, covariates, by = "location")
-
-ALFL <- glmmTMB(ALFL ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(ALFL)
-
-
-AMRE <- glmmTMB(AMRE ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(AMRE)
-
-BTNW <- glmmTMB(BTNW ~  Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(BTNW)
-
-CHSP <- glmmTMB(CHSP ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(CHSP)
-
-COYE <- glmmTMB(COYE ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(COYE)
-
-HETH <- glmmTMB(HETH ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(HETH)
-
-# So far, only one wehere RETN_m2 matter. It's positive for this dude
-LEFL <- glmmTMB(LEFL ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(LEFL) # AIC: 220
-
-# Convergence issue. Only 4 sites with more than 1 LCSP
-LCSP <- glmmTMB(LCSP ~ Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(LCSP)
-nrow(Abund_Covs |> filter(LCSP >0)) #4
-
-LISP <- glmmTMB(LISP ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(LISP)
-
-MOWA <- glmmTMB(MOWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(MOWA)
-
-OVEN <- glmmTMB(OVEN ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(OVEN) # AIC: 238
-
-# No PHVI in the data
-PHVI <- glmmTMB(PHVI ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(PHVI)
-
-REVI <- glmmTMB(REVI ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(REVI)
-
-RCKI <- glmmTMB(RCKI ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(RCKI)
-
-SWTH <- glmmTMB(SWTH ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(SWTH)
-
-# RETN_m2 positive
-WAVI <- glmmTMB(WAVI ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(WAVI) # AIC 482
-
-WTSP <- glmmTMB(WTSP ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(WTSP)
-
-WIWR <- glmmTMB(WIWR ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(WIWR)
-
-# RETN positive
-YEWA <- glmmTMB(YEWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(YEWA) # ACID 187, better than Edge
-
-YRWA <- glmmTMB(YRWA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(YRWA) # AIC 570
-
-TEWA <- glmmTMB(TEWA ~ poly(Year_since_logging2) + Year_since_logging*Patch + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(TEWA)
-
-OSFL <- glmmTMB(OSFL ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(OSFL)
-
-```
-
-# Single species metrics: Patch edge 
-Out of 18 species, Patch Edge is positive for 4 LEFL, WAVI, YEWA, YRWA
-and negative for OVEN.
-```R 
-ALFL <- glmmTMB(ALFL ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(ALFL)
-
-
-AMRE <- glmmTMB(AMRE ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(AMRE)
-
-BTNW <- glmmTMB(BTNW ~  Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(BTNW)
-
-CHSP <- glmmTMB(CHSP ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(CHSP)
-
-COYE <- glmmTMB(COYE ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(COYE)
-
-HETH <- glmmTMB(HETH ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(HETH)
-
-# So far, only one where Edge matter. It's positive for this dude
-LEFL <- glmmTMB(LEFL ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(LEFL) # AIC: 227
-
-# Convergence issue. Only 4 sites with more than 1 LCSP
-LCSP <- glmmTMB(LCSP ~ Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(LCSP)
-nrow(Abund_Covs |> filter(LCSP >0)) #4
-
-LISP <- glmmTMB(LISP ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(LISP)
-
-MOWA <- glmmTMB(MOWA ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(MOWA)
-
-# Edge bad
-OVEN <- glmmTMB(OVEN ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(OVEN)# AIC: 237
-
-# No PHVI in the data
-PHVI <- glmmTMB(PHVI ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(PHVI)
-
-REVI <- glmmTMB(REVI ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(REVI)
-
-RCKI <- glmmTMB(RCKI ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(RCKI)
-
-SWTH <- glmmTMB(SWTH ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(SWTH)
-
-# Edge positive
-WAVI <- glmmTMB(WAVI ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(WAVI) # AIC 428, better than RETN_m2 model
-
-WTSP <- glmmTMB(WTSP ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(WTSP)
-
-WIWR <- glmmTMB(WIWR ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(WIWR)
-
-# Edge positive
-YEWA <- glmmTMB(YEWA ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(YEWA) # AIC 189
-
-# Edge positive
-YRWA <- glmmTMB(YRWA ~ poly(Year_since_logging2) + Year_since_logging + Edge + Dist_near_forest,
-                data = Abund_Covs,
-                family = poisson)
-summary(YRWA) # ACI 569
-
-GRJA
-```
-
 # Response from birds of prey, and nest eaters?
 ```R 
 CAJA <- glmmTMB(CAJA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
