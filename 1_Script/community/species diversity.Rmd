@@ -43,7 +43,7 @@ birds_abund <- birds_abund |>
 
 # head(birds_abund)
 # names(birds_abund)
-getwd()
+# getwd()
 covariates <-read_csv("0_Data/Processed/merged_covariates.csv")
 dist_to_forest <- read_csv("0_Data/Processed/retn dist to nearest forest.csv")
 dist_to_forest <- select(dist_to_forest, location, Dist_near_forest)
@@ -497,11 +497,17 @@ AIC(hill_rich10) # 1831.558
 hill_rich10re <-  glmmTMB(richness ~ Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
                         data = birds_abund_covs_noLargePatches,
                         family = poisson)
+hill_rich10 <-  glmmTMB(richness ~ Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = poisson)
+hill_rich10nb <-  glmmTMB(richness ~ Year_since_logging + Dist_near_forest + poly(Year_since_logging2),
+                        data = birds_abund_covs_noLargePatches,
+                        family = nbinom1)
 AIC(hill_rich10re) # 1829.083
 summary(hill_rich10re)
 nrow(birds_abund_covs_noLargePatches)
 r.squaredGLMM(hill_rich10re) # delta R2m = 0.2573984
-plot(simulateResiduals(hill_rich10re)) # Residuals ok
+plot(simulateResiduals(hill_rich10nb)) # Residuals ok
 
 hill_rich5bre <- glmmTMB(richness ~ Edge + Year_since_logging + Dist_near_forest + poly(Year_since_logging2) + (1|location),
                         data = birds_abund_covs_noLargePatches,

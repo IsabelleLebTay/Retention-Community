@@ -249,7 +249,7 @@ predictors_to_scale <- c('RETN_m2', 'Year_since_logging', "Edge", "Year_since_lo
 covariates[, predictors_to_scale] <- lapply(covariates[, predictors_to_scale], function(x) {
   (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
 })
-View(covariates)
+# View(covariates)
 
 # Filter the sites in covariates so they match with fd_df
 correct_sites <- fd_df$location
@@ -507,8 +507,8 @@ predict_data_edge <- data.frame(
 predicted_no_re <- predict(Func_diversity_glm6b, newdata = predict_data_edge, type = "response", se.fit = TRUE)
 
 # Add predictions and confidence intervals to the data frame
-predict_data_edge$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
-predict_data_edge$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
+predict_data_edge$lwr <- predicted_no_re$fit - 1.96*predicted_no_re$se.fit
+predict_data_edge$upr <- predicted_no_re$fit + 1.96*predicted_no_re$se.fit
 predict_data_edge$predicted <- predicted_no_re$fit
 # View(predict_data_age2)
 
@@ -527,13 +527,15 @@ Edge_plot_scaled <- predict_data_edge %>%
             position = "jitter") + # Adjust for actual data points if necessary
   theme_minimal() +
   ylab("Functional divergence") +
-  xlab("Amount of edge (m)") +
+  xlab("Perimeter/area (m)") +
   # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
   scale_x_continuous(limits = c(0, 40)) + # Explicitly set x-axis limits
   theme(legend.position = "none", 
         axis.text=element_text(size=12),
-        axis.title=element_text(size=14))
-print(Edge_plot_scaled)
+        axis.title=element_text(size=14),
+        panel.background = element_rect(fill = 'white', colour = 'white'),
+        plot.background = element_rect(fill = 'white', colour = 'white'))
+# print(Edge_plot_scaled)
 
 ggsave(filename = file.path("2_Outputs/Functional", "Functional divergence and edge.png"), plot = Edge_plot_scaled, width = 5, height = 4)
 
@@ -605,6 +607,12 @@ Func_diversity_glm5 <- glmmTMB(FRic ~ Edge + Year_since_logging*Patch,
 AIC(Func_diversity_glm5) # -1739.546
 summary(Func_diversity_glm5)
 
+# Same as top model. nothing significant
+Func_diversity_glm9 <- glmmTMB(FRic ~ Year_since_logging*Patch,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm9) # -1739.802
+summary(Func_diversity_glm9)
 
 Func_diversity_glm6 <- glmmTMB(FRic ~ Edge + Patch*Veg_cat,
                         data = FuncDiv_Covs,
@@ -627,6 +635,11 @@ Func_diversity_glm8 <- glmmTMB(FRic ~ Edge + Year_since_logging + Dist_near_fore
 AIC(Func_diversity_glm8) # -1741.353
 summary(Func_diversity_glm8)
 
+Func_diversity_glm8 <- glmmTMB(FRic ~ Edge + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm8) # -1739.5
+summary(Func_diversity_glm8)
 ```
 
 ## Functional richness: comparing top models 
@@ -634,7 +647,7 @@ summary(Func_diversity_glm8)
 Func_diversity_glm0b <- glmmTMB(FRic ~ Edge,
                         data = FuncDiv_Covs,
                         family = gaussian)
-AIC(Func_diversity_glm0b) # -1739.875
+AIC(Func_diversity_glm0b) # -1741.9
 summary(Func_diversity_glm0b)
 r.squaredGLMM(Func_diversity_glm0b) # 0.01088224 0.01088224
 plot(simulateResiduals(Func_diversity_glm0b)) # Residuals are ok.
@@ -682,8 +695,8 @@ predict_data_edge <- data.frame(
 predicted_no_re <- predict(Func_diversity_glm0b, newdata = predict_data_edge, type = "response", se.fit = TRUE)
 
 # Add predictions and confidence intervals to the data frame
-predict_data_edge$lwr <- predicted_no_re$fit - 2*predicted_no_re$se.fit
-predict_data_edge$upr <- predicted_no_re$fit + 2*predicted_no_re$se.fit
+predict_data_edge$lwr <- predicted_no_re$fit - 1.96*predicted_no_re$se.fit
+predict_data_edge$upr <- predicted_no_re$fit + 1.96*predicted_no_re$se.fit
 predict_data_edge$predicted <- predicted_no_re$fit
 # View(predict_data_age2)
 
@@ -703,14 +716,17 @@ Edge_plot_scaled <- predict_data_edge %>%
             position = "jitter") + # Adjust for actual data points if necessary
   theme_minimal() +
   ylab("Functional richness") +
-  xlab("Amount of edge (m)") +
+  xlab("Perimeter/area (m)") +
   # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
   scale_x_continuous(limits = c(0, 40)) + # Explicitly set x-axis limits
   theme(legend.position = "none", 
         axis.text=element_text(size=12),
-        axis.title=element_text(size=14))
-# ?geom_point
-print(Edge_plot_scaled)
+        axis.title=element_text(size=14),
+        panel.background = element_rect(fill = 'white', colour = 'white'),
+        plot.background = element_rect(fill = 'white', colour = 'white'))
+
+# ?element_rect
+# print(Edge_plot_scaled)
 
 ggsave(filename = file.path("2_Outputs/Functional", "Functional richness and Edge.png"), plot = Edge_plot_scaled, width = 5, height = 4)
 ```
@@ -891,9 +907,10 @@ summary(Func_diversity_glm11)
 
 ```
 
-## Functional divergenge: comparing top models
+## Functional evenness: comparing top models
 ```R 
 # New best
+head(FuncDiv_Covs)
 Func_diversity_glm8b <- glmmTMB(FEve ~ Edge + Year_since_logging*Patch + Veg_cat*Patch,
                         data = FuncDiv_Covs,
                         family = gaussian)
@@ -967,17 +984,17 @@ length(Abund_Covs$Year_since_logging2)#366
 species_list <- c("ALFL", 'AMRE', 'BTNW', 'CHSP', 'COYE', 'HETH', 'LEFL', 'LISP', 'MOWA', 'REVI', 'RCKI', 'WAVI', 'WTSP', 'SWTH', 'YEWA', 'YRWA', 'TEWA', 'OSFL')
 
 options(na.action = "na.fail") # There are no Nas in the dataset, so this just ensures the dredge() function behaves as expected
-
+species_list <- list("TEWA")
 for (bird in species_list) {
   edge_formula_str <- paste(bird, "~  poly(Year_since_logging2) + Year_since_logging:Patch + Dist_near_forest + Edge + Veg_cat + Year_since_logging + Patch")
   edge_gm <- glm(as.formula(edge_formula_str), 
                  data = Abund_Covs, 
-                 family = poisson)            
+                 family = nbinom1)            
   
   area_formula_str <- paste(bird, "~ poly(Year_since_logging2) + Year_since_logging:Patch + Dist_near_forest + RETN_m2 + Veg_cat + Year_since_logging + Patch")
   area_gm <- glm(as.formula(area_formula_str),
                 data = Abund_Covs,
-                family = poisson)
+                family = nbinom1)
   
   dredge_edge <- dredge(global.model = edge_gm, rank = 'AICc', extra = list(
                           "adjR^2",
@@ -1004,8 +1021,8 @@ for (bird in species_list) {
   area_top <- subset(dredge_area, delta < 2)
   area_top <- as.data.frame(area_top)
 
-  write.csv(edge_top, glue("2_Outputs/Single species/Dredge tables/R2 values/{bird}_edge_R2.csv"))
-  write.csv(area_top, glue("2_Outputs/Single species/Dredge tables/R2 values/{bird}_area_R2.csv"))
+  write.csv(edge_top, glue("2_Outputs/Single species/Dredge tables/R2 values/{bird}_edge_R2_nbinom.csv"))
+  write.csv(area_top, glue("2_Outputs/Single species/Dredge tables/R2 values/{bird}_area_R2_nbinom.csv"))
 }
 ```
 
@@ -1017,8 +1034,10 @@ ALFL <- glm(ALFL ~ Dist_near_forest + poly(Year_since_logging2) + Year_since_log
                 data = Abund_Covs,
                 family = poisson)
 AIC(ALFL)
+summary(ALFL)
 plot(simulateResiduals(ALFL)) # residuals good
 coefficients_table <- as.data.frame(summary(ALFL)$coefficients$cond) 
+plot_model(ALFL, type = 'est')
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "ALFL_summary.csv"), row.names=TRUE)
 
 AMRE <- glmmTMB(AMRE ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat +Year_since_logging,
@@ -1111,21 +1130,25 @@ plot(simulateResiduals(SWTH)) # residuals good
 coefficients_table <- as.data.frame(summary(SWTH)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "SWTH_summary.csv"), row.names=TRUE)
 
-# Residuals not behaving as expected without the re. Fixed by adding the location re.
+# Residuals not behaving as expected as Poisson. Nge Binom fixes it!
 TEWA <- glmmTMB(TEWA ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat + Year_since_logging*Patch + (1|location),
                 data = Abund_Covs,
                 family = poisson)
+TEWA <- glmmTMB(TEWA ~ Dist_near_forest + poly(Year_since_logging2) + Veg_cat + Year_since_logging*Patch,
+                data = Abund_Covs,
+                family = nbinom1)
 summary(TEWA)
+r.squaredGLMM(TEWA)
 plot(simulateResiduals(TEWA)) # residuals good
 coefficients_table <- as.data.frame(summary(TEWA)$coefficients$cond) 
-write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "TEWA_summary.csv"), row.names=TRUE)
+write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "TEWA_summary_nbinom.csv"), row.names=TRUE)
 
 WAVI <- glmmTMB(WAVI ~ Dist_near_forest + RETN_m2,
                 data = Abund_Covs,
                 family = poisson)
 summary(WAVI)
 plot(simulateResiduals(WAVI)) # residuals good
-r.squaredGLMM(TEWA)
+
 coefficients_table <- as.data.frame(summary(WAVI)$coefficients$cond) 
 write.csv(coefficients_table, file.path("2_Outputs/Single species/Model summaries", "WAVI_summary.csv"), row.names=TRUE)
 
@@ -1287,6 +1310,31 @@ print(p)
 ggsave(filename = file.path("2_Outputs/Single species/Year x Patch plots", "COYE year x patch.png"), plot = p, width = 5, height = 4)
 
 ```
+
+## Plot covariate allocation 
+```R 
+prop_cv <- read.csv("2_Outputs/Single species/covariate proportion.csv")
+# Plotting
+labels <- prop_cv$covariate
+labels[labels == "Year^2"] <- "Year²"
+labels[labels == "Patch area (m^2)"] <- "Patch area (m²)"
+print(labels)
+cov_barplot <- ggplot(prop_cv, aes(x=covariate, y=percent)) + 
+  geom_bar(stat="identity", fill="grey") +
+  scale_x_discrete(limits=prop_cv$covariate, labels=labels) + # Customizing x-axis labels
+  theme_minimal() +
+  labs(x="Covariate", y="Proportion") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+ggsave(filename = file.path("2_Outputs/Single species", "Covariate allocation barplot.png"), plot = cov_barplot, width = 5, height = 4)
+
+
+```
+
 # Response from birds of prey, and nest eaters?
 ```R 
 CAJA <- glmmTMB(CAJA ~ poly(Year_since_logging2) + Year_since_logging + RETN_m2 + Dist_near_forest,
