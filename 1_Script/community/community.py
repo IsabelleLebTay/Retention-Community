@@ -12,6 +12,7 @@ data = pd.read_csv(os.path.join(raw_Path,"BU_Harvest_Patch_Retention_-_Community
 # dummies from the species code column, drops column
 
 data = data[data['aru_task_status'] == 'Transcribed']
+data = data[data['vocalization'] == 'Song']
 data['dummies'] = data['species_code']
 # data['dummies'] = data['species_common_name']
  #species_common_name
@@ -34,7 +35,7 @@ exclude_these = ['NONE', 'RESQ', "RTHA", 'UNWO', 'UNKN', 'UNPA', 'UPCH', 'UNBI',
 
 select_species = [i for i in full_species_list if i not in exclude_these]
 
-columnsList = ['location', 'recording_date_time', 'latitude', 'longitude', 'species_code'] + select_species
+columnsList = ['location', 'recording_date_time', 'latitude', 'longitude', 'task_comments'] + select_species
 # print(columnsList)
 
 # make a dict of the aggregate function for each column. For the species code (length 4), use sum. Use first for the rest. Exclude 'location at index 0.
@@ -60,4 +61,4 @@ print(df1.head())
 grouped = df1.groupby('location').agg(columns_dictA)
 print(grouped.columns)
 print(grouped.head())
-grouped.to_csv(os.path.join(processed_Path, "Limited perceptibility", 'community_occupancy_by_location_code_names.csv'))
+grouped.to_csv(os.path.join(processed_Path, "Limited perceptibility", 'Multi_spp_occupancy.csv'))
