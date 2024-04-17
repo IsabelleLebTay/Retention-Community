@@ -219,7 +219,7 @@ covariates <- read_csv("0_Data/Processed/merged_covariates.csv")
 dist_to_forest <- read_csv("0_Data/Processed/retn dist to nearest forest.csv")
 dist_to_forest <- select(dist_to_forest, location, Dist_near_forest)
 covariates <- merge(covariates, dist_to_forest, by = "location")
-
+# View(covariates)
 covariates <- covariates %>% select(-c("TEWA", "OSFL", "RCKI", "YRWA", "REVI", "WTSP"))
 names(fd_df)[1] <- "location"
 
@@ -239,7 +239,7 @@ covariates <- covariates %>%
 # This data has a few really large retention pathces. Let;s get rid of those
 covariates <- covariates |>
   filter(RETN_m2 < 12000)
-
+View(covariates)
 # Check the distribution of patch size now -- better
 # ggplot(covariates, aes(x = RETN_m2)) +
   # geom_histogram()
@@ -534,8 +534,9 @@ Edge_plot_scaled <- predict_data_edge %>%
         axis.text=element_text(size=12),
         axis.title=element_text(size=14),
         panel.background = element_rect(fill = 'white', colour = 'white'),
-        plot.background = element_rect(fill = 'white', colour = 'white'))
-# print(Edge_plot_scaled)
+        plot.background = element_rect(fill = 'white', colour = 'white'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+print(Edge_plot_scaled)
 
 ggsave(filename = file.path("2_Outputs/Functional", "Functional divergence and edge.png"), plot = Edge_plot_scaled, width = 5, height = 4)
 
@@ -668,6 +669,31 @@ AIC(Func_diversity_glm5) # -1739.546
 summary(Func_diversity_glm5)
 r.squaredGLMM(Func_diversity_glm5) # 0.02123786 0.02123786
 plot(simulateResiduals(hill_rich5b)) # Residuals are good.
+
+
+Func_diversity_glm6a <- glmmTMB(FRic ~ Edge + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = beta_family(link="logit"))
+AIC(Func_diversity_glm6a) # -1621.556
+summary(Func_diversity_glm6a)
+r.squaredGLMM(Func_diversity_glm6a) # 0.01930648 0.01930648
+plot(simulateResiduals(Func_diversity_glm6a)) # Residuals are all over the place.
+
+Func_diversity_glm6a <- glmmTMB(FRic ~ Edge + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm6a) # -1621.556
+summary(Func_diversity_glm6a)
+r.squaredGLMM(Func_diversity_glm6a) # 0.01930648 0.01930648
+plot(simulateResiduals(Func_diversity_glm6a)) # Residuals are okFunc_diversity_glm6b
+
+Func_diversity_glm6b <- glmmTMB(FRic ~ RETN_m2 + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+AIC(Func_diversity_glm6a) # -1621.556
+summary(Func_diversity_glm6b)
+r.squaredGLMM(Func_diversity_glm6b) # 0.01930648 0.01930648
+plot(simulateResiduals(Func_diversity_glm6b)) # fine
 ```
 
 ## Funcitonal richness: plotting top model
@@ -723,12 +749,76 @@ Edge_plot_scaled <- predict_data_edge %>%
         axis.text=element_text(size=12),
         axis.title=element_text(size=14),
         panel.background = element_rect(fill = 'white', colour = 'white'),
-        plot.background = element_rect(fill = 'white', colour = 'white'))
+        plot.background = element_rect(fill = 'white', colour = 'white'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        plot.margin = unit(c(0.4,1.1,0.4,0.4), "cm")))
 
 # ?element_rect
-# print(Edge_plot_scaled)
+print(Edge_plot_scaled)
 
 ggsave(filename = file.path("2_Outputs/Functional", "Functional richness and Edge.png"), plot = Edge_plot_scaled, width = 5, height = 4)
+
+# Plot from the full model
+Func_diversity_glm13a <- glmmTMB(FRic ~ RETN_m2 + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+
+func_rich_summary <- summary(Func_diversity_glm13a)
+
+# Extract the coefficients table (fixed effects as an example)
+coefficients_table <- as.data.frame(func_rich_summary$coefficients$cond) # for conditional effects
+
+# Save the coefficients table to a CSV file
+write.csv(coefficients_table, file.path("2_Outputs/Functional", "functional_richnness_fullModel_summary.csv"), row.names=TRUE)
+
+# Create a new data frame for predictions
+predict_data_area <- data.frame(
+    RETN_m2 = seq(min(FuncDiv_Covs$RETN_m2, na.rm = TRUE), 
+              max(FuncDiv_Covs$RETN_m2, na.rm = TRUE), length.out = 367),
+    Patch = mean(FuncDiv_Covs$Patch, na.rm = TRUE),
+    Year_since_logging = mean(FuncDiv_Covs$Year_since_logging, na.rm = TRUE),
+    Dist_near_forest = mean(FuncDiv_Covs$Dist_near_forest, na.rm = TRUE),
+    Year_since_logging2 = mean(FuncDiv_Covs$Year_since_logging2, na.rm = TRUE))
+
+# Predict using the model without a random effect
+predicted_no_re <- predict(Func_diversity_glm13a, newdata = predict_data_area, type = "response", se.fit = TRUE)
+
+# Add predictions and confidence intervals to the data frame
+predict_data_area$lwr <- predicted_no_re$fit - 1.96*predicted_no_re$se.fit
+predict_data_area$upr <- predicted_no_re$fit + 1.96*predicted_no_re$se.fit
+predict_data_area$predicted <- predicted_no_re$fit
+# View(predict_data_area)
+
+# Plotting harvest age
+# Scaled back
+predict_data_area$Original_Area <- predict_data_area$RETN_m2 * 12000
+
+# Update plotting code
+Area_plot_scaled <- predict_data_area %>%
+  ggplot(aes(x = Original_Area, y = predicted, group = 1)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
+  geom_line() +
+  geom_point(data = FuncDiv_Covs, 
+            aes(x = RETN_m2 * 12000, y = FRic, group = 1), 
+            size = 0.5,
+            alpha = .3,
+            position = "jitter") + # Adjust for actual data points if necessary
+  theme_minimal() +
+  ylab("Functional richness") +
+  xlab(expression("Area (" * m^2 * ")")) +
+  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
+  scale_x_continuous(limits = c(0, 12000)) + # Explicitly set x-axis limits
+  theme(legend.position = "none", 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        panel.background = element_rect(fill = 'white', colour = 'white'),
+        plot.background = element_rect(fill = 'white', colour = 'white'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        plot.margin = unit(c(0.4,1.1,0.4,0.4), "cm"))
+
+print(Area_plot_scaled)
+ggsave(filename = file.path("2_Outputs/Functional", "Functional richness and area.png"), plot = Area_plot_scaled, width = 5, height = 4)
+
 ```
 
 ## Functional evenness: testing models
@@ -905,6 +995,31 @@ Func_diversity_glm12 <- glmmTMB(FEve ~ Edge + Veg_cat*Patch + poly(Year_since_lo
 AIC(Func_diversity_glm11) # -734.8162
 summary(Func_diversity_glm11)
 
+# patch size is negative on evenness
+Func_diversity_glm13 <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+
+summary(Func_diversity_glm13)
+r.squaredGLMM(Func_diversity_glm13) # 0.01930648 0.01930648
+plot(simulateResiduals(Func_diversity_glm13)) # not great
+
+Func_diversity_glm13a <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+                        data = FuncDiv_Covs,
+                        family = Gamma(link="logit"))
+
+summary(Func_diversity_glm13a)
+r.squaredGLMM(Func_diversity_glm13) # 0.01930648 0.01930648
+plot(simulateResiduals(Func_diversity_glm13a))# finally they are good
+
+Func_diversity_glm13b <- glmmTMB(FEve ~ Edge + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+                        data = FuncDiv_Covs,
+                        family = Gamma(link="logit"))
+
+summary(Func_diversity_glm13b)
+r.squaredGLMM(Func_diversity_glm13) # 0.01930648 0.01930648
+plot(simulateResiduals(Func_diversity_glm13b))# finally they are good
+
 ```
 
 ## Functional evenness: comparing top models
@@ -960,6 +1075,82 @@ r.squaredGLMM(Func_diversity_glm11) # 0.02742791 0.027427
 plot(simulateResiduals(Func_diversity_glm11)) # residuals  have some issues
 
 
+
+```
+
+
+## FEve: plotting full model 
+```R 
+Func_diversity_glm13a <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2) + (1|location),
+                        data = FuncDiv_Covs,
+                        family = Gamma(link="logit"))
+
+summary(Func_diversity_glm13anore)
+r.squaredGLMM(Func_diversity_glm13) # 0.01930648 0.01930648
+plot(simulateResiduals(Func_diversity_glm13a))# finally they are good
+Func_diversity_glm13anore <- glmmTMB(FEve ~ RETN_m2 + Year_since_logging*Patch + Dist_near_forest + poly(Year_since_logging2),
+                        data = FuncDiv_Covs,
+                        family = Gamma(link="logit"))
+Func_diversity_glm0b <- glmmTMB(FRic ~ Edge,
+                        data = FuncDiv_Covs,
+                        family = gaussian)
+r.squaredGLMM(Func_diversity_glm0b)
+  # Save the top model output
+func_eve_summary <- summary(Func_diversity_glm13a)
+
+# Extract the coefficients table (fixed effects as an example)
+coefficients_table <- as.data.frame(func_eve_summary$coefficients$cond) # for conditional effects
+
+# Save the coefficients table to a CSV file
+write.csv(coefficients_table, file.path("2_Outputs/Functional", "functional_evenness_summary.csv"), row.names=TRUE)
+
+# Create a new data frame for predictions
+predict_data_area <- data.frame(
+    RETN_m2 = seq(min(FuncDiv_Covs$RETN_m2, na.rm = TRUE), 
+              max(FuncDiv_Covs$RETN_m2, na.rm = TRUE), length.out = 367),
+    Patch = mean(FuncDiv_Covs$Patch, na.rm = TRUE),
+    Year_since_logging = mean(FuncDiv_Covs$Year_since_logging, na.rm = TRUE),
+    Dist_near_forest = mean(FuncDiv_Covs$Dist_near_forest, na.rm = TRUE),
+    Year_since_logging2 = mean(FuncDiv_Covs$Year_since_logging2, na.rm = TRUE))
+
+# Predict using the model without a random effect
+predicted_no_re <- predict(Func_diversity_glm13anore, newdata = predict_data_area, type = "response", se.fit = TRUE)
+
+# Add predictions and confidence intervals to the data frame
+predict_data_area$lwr <- predicted_no_re$fit - 1.96*predicted_no_re$se.fit
+predict_data_area$upr <- predicted_no_re$fit + 1.96*predicted_no_re$se.fit
+predict_data_area$predicted <- predicted_no_re$fit
+View(predict_data_area)
+
+# Plotting harvest age
+# Scaled back
+predict_data_area$Original_Area <- predict_data_area$RETN_m2 * 12000
+
+# Update plotting code
+Area_plot_scaled <- predict_data_area %>%
+  ggplot(aes(x = Original_Area, y = predicted, group = 1)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = 'grey', alpha = .4, linetype = 0) +
+  geom_line() +
+  geom_point(data = FuncDiv_Covs, 
+            aes(x = RETN_m2 * 12000, y = FEve, group = 1), 
+            size = 0.5,
+            alpha = .3,
+            position = "jitter") + # Adjust for actual data points if necessary
+  theme_minimal() +
+  ylab("Functional evenness") +
+  xlab(expression("Area (" * m^2 * ")")) +
+  # scale_y_continuous(limits = c(min(predict_data_age2$lwr, na.rm = TRUE), max(predict_data_age2$upr, na.rm = TRUE))) +
+  scale_x_continuous(limits = c(0, 12000)) + # Explicitly set x-axis limits
+  theme(legend.position = "none", 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        panel.background = element_rect(fill = 'white', colour = 'white'),
+        plot.background = element_rect(fill = 'white', colour = 'white'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        plot.margin = unit(c(0.4,1.1,0.4,0.4), "cm"))
+
+print(Area_plot_scaled)
+ggsave(filename = file.path("2_Outputs/Functional", "Functional evenness and area.png"), plot = Area_plot_scaled, width = 5, height = 4)
 
 ```
 

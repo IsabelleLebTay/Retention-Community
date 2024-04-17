@@ -2,7 +2,14 @@
 2_Outputs/
 *.json
 brainstorm_files/
-README.md
 Threshold.R
 
+brainstorm.md
+brainstorm.html
+
 1_Script/community/sandbox.ipynb
+1_Script/community/get species list per locatin.ipynb
+1_Script/community/functional_diversity_setup.Rmd
+1_Script/community/taxonomic_diveristy_setup.Rmd
+1_Script/community/Threshold.R
+image.png

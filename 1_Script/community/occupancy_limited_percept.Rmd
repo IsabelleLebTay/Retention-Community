@@ -1,0 +1,463 @@
+---
+title: multi-species occupancy from limited perceptability data
+date: 2024
+type: reference
+tags: " #code/R "
+description: "Multi-species occupancy on perceptibility limited data"
+---
+
+**Script modified by ILT**
+
+
+# Load packages
+```R
+library(tidyverse)
+library(spOccupancy)
+library(tidybayes)
+library(ggplot2)
+library(tidyr)
+```
+
+# Covariates & Occupancy dataframe
+```R 
+occupancy_data <- read.csv(file.path("0_Data/Processed/Limited perceptibility", "community_occupancy_by_location_code_names.csv"))
+covariates <- read_csv("0_Data/Processed/merged_covariates.csv")
+dist_to_forest <- read_csv("0_Data/Processed/retn dist to nearest forest.csv")
+dist_to_forest <- select(dist_to_forest, location, Dist_near_forest)
+covariates <- merge(covariates, dist_to_forest, by = "location")
+# View(covariates)
+covariates <- covariates %>% select(-c("TEWA", "OSFL", "RCKI", "YRWA", "REVI", "WTSP"))
+covariates$DateTime <- occupancy_data$recording_date_time
+# Add amount edge
+covariates$Edge <- ifelse(covariates$RETN_m2 != 0 & covariates$RETN_perimeter_m !=0, 
+                            covariates$RETN_m2 / covariates$RETN_perimeter_m, 0)
+covariates$Year_since_logging2 <- covariates$Year_since_logging ^2
+# max(covariates$Edge) # 37.22
+# Add patch presence
+covariates <- covariates %>%
+      mutate(Patch = ifelse(RETN_m2 > 0, 1, 0))
+
+# Check the distribution of patch size
+# ggplot(covariates, aes(x = RETN_m2)) +
+  # geom_histogram()
+
+# This data has a few really large retention pathces. Let;s get rid of those
+covariates <- covariates |>
+  filter(RETN_m2 < 12000)
+
+# Scale some of these predictors
+predictors_to_scale <- c('RETN_m2', 'Year_since_logging', "Edge", "Year_since_logging2", "Dist_near_forest")
+covariates[, predictors_to_scale] <- lapply(covariates[, predictors_to_scale], function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+})
+# View(covariates)
+
+# Filter the sites in covariates so they match with fd_df
+correct_sites <- occupancy_data$location
+covariates_matching_sites <- covariates |>
+                                filter(location %in% correct_sites)
+
+nrow(covariates_matching_sites)
+nrow(occupancy_data)
+
+# 37 sites do not have any covariate data. These are likely becuase they didn't make the cut in terms of site quality.
+# Exclude the sites that are not in covariate
+sites_with_covs <- covariates_matching_sites$location
+occupancy_data_correct_sites <- occupancy_data |>
+                          filter(location %in% sites_with_covs)
+nrow(occupancy_data_correct_sites) # 119 sites as of 2024-04-15
+nrow(covariates_matching_sites)
+# write.csv(covariates_matching_sites, "0_Data/Processed/covariates_prepped_comm.csv" )
+# Now these two are mathcing in length (368 sites)
+# Reset the names os it is clear
+Covariates <- covariates_matching_sites
+Occupancy_data <- occupancy_data_correct_sites
+# View(Occupancy_data)
+
+write.csv(Covariates, "0_Data/Processed/Limited perceptibility/covariates_unscaled.csv")
+write.csv(Occupancy_data, "0_Data/Processed/Limited perceptibility/Multi_spp_occupancy.csv")
+
+```
+
+
+# Run: multi species occupancy
+```R 
+occupancy_data <- read.csv("0_Data/Processed/Limited perceptibility/Multi_spp_occupancy.csv")
+covariates <- read.csv("0_Data/Processed/Limited perceptibility/covariates_prepped.csv")
+# View(covariates)
+# For now, delete WIWR and WETA, since occu could not be calculated
+occupancy_data <- occupancy_data %>%
+                            select(-c("WETA", "WIWR"))
+View(occupancy_data)
+
+# To test, let's select a handful of spp
+occupancy_data <- occupancy_data %>%
+                            select(c("location", 'recording_date_time',"WTSP", "SWTH", "LISP", "OVEN"))
+species_cols  <- names(occupancy_data)[3:ncol(occupancy_data)]
+occupancy_format <- select(occupancy_data, location, species_cols)
+# View(occupancy_format)
+
+# Step 1: Convert data to long format where each row is a specific detection event
+occupancy_long <- occupancy_format %>%
+  pivot_longer(cols = species_cols, names_to = "species", values_to = "detection") %>%
+  mutate(
+    site_id = as.factor(location),  # Assuming 'location' is your site identifier column
+    species_id = as.factor(species),
+    replicate_id = 1  # Adjust if you have multiple visits per site
+  )
+View(occupancy_long)
+# Step 2: Create an array
+# Determine dimensions
+n_species <- length(unique(occupancy_long$species_id))
+n_sites <- length(unique(occupancy_long$site_id))
+n_replicates <- max(occupancy_long$replicate_id)  # Should be 1 
+
+# Create the array
+y_array <- array(dim = c(n_species, n_sites, n_replicates))
+
+# Fill the array
+for (i in 1:n_species) {
+  for (j in 1:n_sites) {
+    # Subsetting to match species and site
+    data_subset <- occupancy_long %>%
+      filter(species_id == levels(occupancy_long$species_id)[i],
+             site_id == levels(occupancy_long$site_id)[j])
+    
+    # Assume detections are sorted correctly and fill the array
+    y_array[i, j, 1:length(data_subset$replicate_id)] <- data_subset$detection
+  }
+}
+
+# Verify structure
+dim(y_array) # Num of species * num of sites * num of replicates (visits)
+
+# Prepare `occ.covs` - assuming 'Year_since_logging' is a covariate for occurrence
+occ_covs <- as.matrix(covariates$Year_since_logging)
+# scaled_occ_covs <- scale(occ_covs)
+# occ_covs <- scaled_occ_covs
+colnames(occ_covs) <- "Year_since_logging"
+# View(occ_covs) # sites * covariates
+
+# Prepare detection covariates. This one is a list of matrices.
+occupancy_data$doy <- yday(occupancy_data$recording_date_time)
+View(occupancy_data$doy)
+# Scale doy
+occupancy_data$doy <- log(occupancy_data$doy)
+# predictors_to_scale <- c('doy')
+# occupancy_data$doy <- lapply(occupancy_data$doy, function(x) {
+#   (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+# })
+
+# The format of the detection data is a list of the covariates, where each covariate has a name and is a matrix object 
+# with the number of visits as the columns.
+
+det_covs <- list(doy = scale(as.matrix(occupancy_data$doy)))
+# colnames(det_covs) <- "day_of_year"
+str(det_covs)
+
+# Package all the data into a list for msPGOcc
+data_list <- list(y = y_array, occ.covs = occ_covs, det.covs = det_covs)
+
+# Check the structure of the list
+str(data_list)
+
+# Check for NA, NaN, or Inf values in your dataset
+sum(is.na(data_list))  # Total NAs in the dataset
+
+# Calculate correct dimensions
+# n_occ_covs <- ncol(occ_covs)  # Number of occupancy covariates
+# n_det_covs <- length(det_covs)  # Number of detection covariates
+
+# Initial values
+inits.list <- list(alpha.comm = 0, 
+                   beta.comm = 0, 
+                   beta = 0, 
+                   alpha = 0,
+                   tau.sq.beta = 1, 
+                   tau.sq.alpha = 1, 
+                   z = apply(y_array, c(1, 2), max, na.rm = TRUE))
+
+# Ensure matrix dimensions match expected by checking
+cat("Dimensions of beta initial values:", dim(inits.list$beta), "\n")
+
+# Priors list
+prior.list <- list(beta.comm.normal = list(mean = 0, var = 2.72), 
+                   alpha.comm.normal = list(mean = 0, var = 2.72), 
+                   tau.sq.beta.ig = list(a = 0.1, b = 0.1), 
+                   tau.sq.alpha.ig = list(a = 0.1, b = 0.1))
+
+# Define the number of samples to draw
+n_samples <- 3000
+n_burn <- 1000
+n_thin <- 1
+
+# data_list[2]$Year_since_logging
+
+# # Can also do this for the formulas:
+# occ.ms.formula <- ~ scale(Year_since_logging)
+# centered_doy <- scale(occ_covs)
+# print(centered_doy)
+# ?scale()
+# det.ms.formula <- ~ scale(doy)
+# Fit the multi-species occupancy model
+model_ms <- msPGOcc(
+  occ.formula = ~ Year_since_logging,         # lme4 formula for occupancy covariates
+  det.formula = ~ doy,                        # lme4 formula for detection covariates
+  data = data_list,                           # List containing the data
+  inits = inits.list,                         # Initial values
+  priors = prior.list,                        # Priors for the parameters
+  n.samples = n_samples,                      # Number of samples to collect in each chain
+  n.burn = n_burn,                            # Number of burn-in samples
+  n.thin = n_thin,                            # Thinning interval
+  n.chains = 1,                               # Number of chains to run
+  verbose = TRUE                              # Print progress to the screen
+)
+
+# Print the summary of the model
+# summary(model, level = 'both')
+summary(model, level = 'community')
+
+# Posterior predictivce check
+# Approx. run time: 20 sec
+ppc.ms.out <- ppcOcc(model, 'chi-squared', group = 1) # Goup = 1 is across sites
+# ppc.model <- ppcOcc(model, fit.stat = 'freeman-tukey', group = 1) # Goup = 1 is across sites
+summary(ppc.ms.out)
+waicOcc(model)
+
+waicOcc(model, by.sp = TRUE)
+```
+
+# Model evaluation
+```R 
+# Print the summary of the model
+# In the Doser example, there are no rhats either
+# summary(model, level = 'both')
+summary(model_ms, level = 'community')
+
+# Posterior predictivce check
+# Approx. run time: 20 sec
+ppc.ms.out <- ppcOcc(model_ms, 'chi-squared', group = 1) # Goup = 1 is across sites
+# ppc.model <- ppcOcc(model, fit.stat = 'freeman-tukey', group = 1) # Goup = 1 is across sites
+summary(ppc.ms.out)
+waicOcc(model)
+
+waicOcc(model_ms, by.sp = TRUE)
+
+## There are some species WAIC that are infinite. Identify those species and find out more
+occupancy_data <- read.csv("0_Data/Processed/Limited perceptibility/Multi_spp_occupancy.csv")
+names(occupancy_data[47])
+# WETA, WIWR: infinite WAIC.
+
+```
+
+
+
+# What are multi-species occupancy models?
+Detection and occupancy vary by species. Species-specific regression coefficients for occupancy and detection are treated as random effects arising from community-level normal distributions, which leads to greater precision of species-specific effects (particularly for rare species) and facilitates estimation of biodiversity metrics (Zipkin et al., 2009).
+
+# Visualise model outputs
+```R 
+plot(model_ms, 'beta', density = FALSE) # Occupancy parameters.
+
+str(covariates)
+## This is an example of the predictions we can make with the ms occupancy model
+data(hbefElev)
+str(hbefElev)
+elev.pred <- (hbefElev$val - mean(ovenHBEF$occ.covs[, 1])) / sd(ovenHBEF$occ.covs[, 1])
+# These are the new intercept and covariate data.
+X.0 <- cbind(1, covariates$Year_since_logging) 
+out.pred <- predict(out, X.0)
+out.ms.pred <- predict(model_ms, X.0)
+
+```
+
+
+# Visualise occupancy prob
+```R 
+#######################
+
+# Extract beta.samples for species-level occurrence regression coefficients
+# Assuming beta.samples are structured with rows as MCMC iterations and columns as species
+get_variables(model_ms$beta.samples)
+str(model_ms$psi.samples)
+dim(model_ms$psi.samples)
+dim(model_ms$beta.samples)
+get_variables(model_ms$beta.samples)
+beta_samples <- as.data.frame(model_ms$beta.samples)
+View(beta_samples)
+
+# Assuming beta.samples is your model output structure
+beta_coefficients <- apply(model_ms$beta.samples[, 5:8], 2, median)
+
+# Print the coefficients to check
+print(beta_coefficients)
+
+
+# Get median estimate for plotting (for simplicity, here we use the median. You might want to use the entire posterior distribution)
+median_beta <- apply(beta_samples, 2, median)
+
+# Create a sequence for the covariate "Year_since_logging"
+year_seq <- seq(from = min(covariates$Year_since_logging), to = max(covariates$Year_since_logging), length.out = 100)
+
+# Calculate the probability for each species across the range of "Year_since_logging"
+prob_matrix <- sapply(median_beta, function(beta) plogis(beta * year_seq))
+
+# Convert to dataframe for ggplot
+plot_data <- data.frame(Year_since_logging = rep(year_seq, times = length(median_beta)),
+                        Probability = as.vector(prob_matrix),
+                        Species = rep(colnames(median_beta), each = length(year_seq)))
+
+# Ensure 'Species' is a factor for better plotting
+plot_data$Species <- factor(plot_data$Species)
+
+########################################
+# Plot psi
+site_data <- data.frame(Site = 1:119, Year_since_logging = runif(119, 0, 1))
+
+# Extract median occupancy prob values across iterations for each site and species
+psi_median <- apply(model_ms$psi.samples, c(2, 3), median)
+
+# Create a data frame from the medians
+psi_df <- data.frame(t(psi_median))
+# names(psi_df) <- paste("Species", 1:4, sep="_")
+names(psi_df) <- species_cols
+colnames(psi_df)
+psi_df$Site <- 1:119
+psi_df <- merge(psi_df, site_data, by = "Site")
+
+# Reshape for ggplot
+long_psi_df <- pivot_longer(psi_df, cols = species_cols, names_to = "Species", values_to = "MedianPsi")
+
+ggplot(long_psi_df, aes(x = Year_since_logging, y = MedianPsi, color = Species)) +
+  geom_point(alpha = 0.6) +  # Using points to represent data points for each site
+  geom_smooth(method = "loess", se = FALSE) +  # Adding a LOESS curve to see trends
+  facet_wrap(~ Species, scales = "free_y") +  # Separate plot for each species
+  labs(x = "Years Since Logging", y = "Median Predicted Occupancy Probability") +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  ggtitle("Occupancy Probability vs. Years Since Logging")
+
+########################### with 95% CI #########################
+site_data <- data.frame(Site = 1:119, Year_since_logging = runif(119, 0, 1))
+
+# Extract median occupancy prob values across iterations for each site and species
+psi_median <- apply(model_ms$psi.samples, c(2, 3), median)
+# Calculate the 2.5% and 97.5% quantiles for each site and species
+psi_ci_lower <- apply(model_ms$psi.samples, c(2, 3), quantile, probs = 0.025)
+psi_ci_upper <- apply(model_ms$psi.samples, c(2, 3), quantile, probs = 0.975)
+psi_df <- NULL
+
+psi_df <- data.frame(t(psi_median))
+# names(psi_df) <- paste("Species", 1:4, sep="_")
+names(psi_df) <- species_cols
+colnames(psi_df)
+psi_df$Site <- 1:119
+psi_df <- merge(psi_df, site_data, by = "Site")
+for (species in species_cols) {
+    species_index <- match(species, species_cols)  # get the index of species in the order they appear
+    psi_df[[paste(species, "Lower", sep = "_")]] <- psi_ci_lower[species_index, ]
+    psi_df[[paste(species, "Upper", sep = "_")]] <- psi_ci_upper[species_index, ]
+}
+
+View(long_psi_df)
+print(psi_df)
+ggplot(psi_df, aes(x = Year_since_logging, y = WTSP)) +
+  geom_point(alpha = 0.6) +  # Using points to represent data points for each site
+  geom_smooth(method = "loess", se = FALSE) +  # Adding a LOESS curve to see trends
+  geom_ribbon(aes(ymin = WTSP_Lower, ymax = WTSP_Upper), fill = "blue", alpha = 0.2) +
+  # facet_wrap(~ Species, scales = "free_y") +  # Separate plot for each species
+  labs(x = "Years Since Logging", y = "Median Predicted Occupancy Probability") +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  ggtitle("Occupancy Probability vs. Years Since Logging")
+
+# Reshape for ggplot
+# long_psi_df <- pivot_longer(psi_df, cols = species_cols, names_to = "Species", values_to = "MedianPsi")
+
+species_list <- c("WTSP", "SWTH", "LISP", "OVEN")  # List of species names
+for (species in species_list) {
+  lower_col <- paste(species, "Lower", sep = "_")
+  upper_col <- paste(species, "Upper", sep = "_")
+
+  # Generate plot for each species
+  p <- ggplot(data = psi_df, aes(x = Year_since_logging, y = get(species))) +
+    geom_ribbon(aes(ymin = get(lower_col), ymax = get(upper_col)), fill = "blue", alpha = 0.2) +
+    geom_line(color = "blue") +
+    labs(x = "Years Since Logging", y = "Predicted Occupancy Probability", title = species) +
+    theme_minimal() +
+    ggtitle(paste("Occupancy Probability vs. Years Since Logging for", species))
+
+  print(p)  # Print the plot
+}
+
+# Convert psi_df to long format
+long_psi_df <- pivot_longer(psi_df, 
+                            cols = c("WTSP", "WTSP_Lower", "WTSP_Upper", "SWTH", "SWTH_Lower", "SWTH_Upper",
+                                     "LISP", "LISP_Lower", "LISP_Upper", "OVEN", "OVEN_Lower", "OVEN_Upper"),
+                            names_to = "Species_Stat",
+                            values_to = "Psi_Value")
+
+# Extract species and statistic (median, lower, upper)
+long_psi_df <- long_psi_df %>%
+  mutate(Species = gsub("_.*", "", Species_Stat),
+         Statistic = gsub(".*_", "", Species_Stat)) %>%
+  pivot_wider(names_from = Statistic, values_from = Psi_Value)
+
+
+
+ggplot(long_psi_df, aes(x = Year_since_logging, y = median, group = Species)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = Species), alpha = 0.2) +  # Add uncertainty interval
+  geom_line(aes(color = Species)) +  # Add median line
+  facet_wrap(~ Species, scales = "free_y") +  # Separate plot for each species
+  labs(x = "Years Since Logging", y = "Predicted Occupancy Probability") +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +  # Use for line colors
+  scale_fill_brewer(palette = "Set1") +  # Use for ribbon colors
+  ggtitle("Occupancy Probability vs. Years Since Logging with 95% Credible Interval")
+
+# Display the plot
+print(ggplot)
+
+
+
+
+
+
+
+
+
+ggplot(long_psi_df, aes(x = Year_since_logging, y = MedianPsi, color = Species)) +
+  geom_point(alpha = 0.6) +  # Using points to represent data points for each site
+  geom_smooth(method = "loess", se = FALSE) +  # Adding a LOESS curve to see trends
+  facet_wrap(~ Species, scales = "free_y") +  # Separate plot for each species
+  labs(x = "Years Since Logging", y = "Median Predicted Occupancy Probability") +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  ggtitle("Occupancy Probability vs. Years Since Logging")
+```
+
+
+# Plot posteriors
+```R 
+library(tidybayes)
+m %>%
+  spread_draws(condition_mean[condition]) %>%
+  ggplot(aes(x = condition_mean, y = condition)) +
+  stat_eye()
+
+
+beta_samples <- as.data.frame(model_ms$beta.samples)
+beta_tidy <- beta_samples %>%
+  as_tibble() %>%
+  pivot_longer(cols = contains("Year_since_logging"), names_to = "Species", values_to = "Coefficient") %>%
+  mutate(Species = sub("Year_since_logging-", "", Species))
+
+?facet_wrap()
+ggplot(beta_tidy, aes(x = Coefficient, fill = Species)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~ Species, scales = "fixed") +
+  labs(x = "Effect of Year Since Logging", y = "Density") +
+  ggtitle("Posterior Distributions for the Effect of Year Since Logging") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1")  # Ensuring color palette is suitable
+```
