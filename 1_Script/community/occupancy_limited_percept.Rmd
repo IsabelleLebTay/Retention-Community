@@ -20,7 +20,7 @@ library(tidyr)
 
 # Covariates & Occupancy dataframe
 ```R 
-occupancy_data <- read.csv(file.path("0_Data/Processed/Limited perceptibility", "community_occupancy_by_location_code_names.csv"))
+occupancy_data <- read.csv(file.path("0_Data/Processed/Limited perceptibility", "Occupancy_truncated_150.csv"))
 covariates <- read_csv("0_Data/Processed/merged_covariates.csv")
 dist_to_forest <- read_csv("0_Data/Processed/retn dist to nearest forest.csv")
 dist_to_forest <- select(dist_to_forest, location, Dist_near_forest)
@@ -36,10 +36,6 @@ covariates$Year_since_logging2 <- covariates$Year_since_logging ^2
 # Add patch presence
 covariates <- covariates %>%
       mutate(Patch = ifelse(RETN_m2 > 0, 1, 0))
-
-# Check the distribution of patch size
-# ggplot(covariates, aes(x = RETN_m2)) +
-  # geom_histogram()
 
 # This data has a few really large retention pathces. Let;s get rid of those
 covariates <- covariates |>
@@ -65,9 +61,9 @@ nrow(occupancy_data)
 sites_with_covs <- covariates_matching_sites$location
 occupancy_data_correct_sites <- occupancy_data |>
                           filter(location %in% sites_with_covs)
-nrow(occupancy_data_correct_sites) # 119 sites as of 2024-04-15
+nrow(occupancy_data_correct_sites) # 119 sites as of 2024-04-15. Down to 85 on 2024-04-17
 nrow(covariates_matching_sites)
-# write.csv(covariates_matching_sites, "0_Data/Processed/covariates_prepped_comm.csv" )
+write.csv(covariates_matching_sites, "0_Data/Processed/Limited perceptibility/Post truncation/covariates_prepped_comm.csv" )
 # Now these two are mathcing in length (368 sites)
 # Reset the names os it is clear
 Covariates <- covariates_matching_sites
@@ -75,27 +71,34 @@ Occupancy_data <- occupancy_data_correct_sites
 # View(Occupancy_data)
 
 write.csv(Covariates, "0_Data/Processed/Limited perceptibility/covariates_unscaled.csv")
-write.csv(Occupancy_data, "0_Data/Processed/Limited perceptibility/Multi_spp_occupancy.csv")
+write.csv(Occupancy_data, "0_Data/Processed/Limited perceptibility/Post truncation/Multi_spp_occupancy.csv")
 
 ```
 
 
 # Run: multi species occupancy
 ```R 
-occupancy_data <- read.csv("0_Data/Processed/Limited perceptibility/Multi_spp_occupancy.csv")
-covariates <- read.csv("0_Data/Processed/Limited perceptibility/covariates_prepped.csv")
+occupancy_data <- read.csv("0_Data/Processed/Limited perceptibility/Post truncation/Multi_spp_occupancy.csv")
+covariates <- read.csv("0_Data/Processed/Limited perceptibility/Post truncation/covariates_prepped_comm.csv")
+dim(covariates)
 # View(covariates)
 # For now, delete WIWR and WETA, since occu could not be calculated
 occupancy_data <- occupancy_data %>%
                             select(-c("WETA", "WIWR"))
-View(occupancy_data)
-
+# View(occupancy_data)
+colnames(occupancy_data)
 # To test, let's select a handful of spp
-occupancy_data <- occupancy_data %>%
-                            select(c("location", 'recording_date_time',"WTSP", "SWTH", "LISP", "OVEN"))
-species_cols  <- names(occupancy_data)[3:ncol(occupancy_data)]
+# occupancy_data <- occupancy_data %>%
+#                             select(c("location", 'recording_date_time',"WTSP", "SWTH", "LISP", "OVEN"))
+
+# Let's try wit hthem all
+
+
+species_cols  <- names(occupancy_data)[2:60]
+# print(species_cols)
+
 occupancy_format <- select(occupancy_data, location, species_cols)
-# View(occupancy_format)
+View(occupancy_format)
 
 # Step 1: Convert data to long format where each row is a specific detection event
 occupancy_long <- occupancy_format %>%
@@ -133,6 +136,7 @@ dim(y_array) # Num of species * num of sites * num of replicates (visits)
 
 # Prepare `occ.covs` - assuming 'Year_since_logging' is a covariate for occurrence
 occ_covs <- as.matrix(covariates$Year_since_logging)
+dim(occ_covs) # why is this 119 sites, where the y_array has only 85 sites?
 # scaled_occ_covs <- scale(occ_covs)
 # occ_covs <- scaled_occ_covs
 colnames(occ_covs) <- "Year_since_logging"
@@ -140,7 +144,7 @@ colnames(occ_covs) <- "Year_since_logging"
 
 # Prepare detection covariates. This one is a list of matrices.
 occupancy_data$doy <- yday(occupancy_data$recording_date_time)
-View(occupancy_data$doy)
+# View(occupancy_data$doy)
 # Scale doy
 occupancy_data$doy <- log(occupancy_data$doy)
 # predictors_to_scale <- c('doy')
@@ -151,7 +155,7 @@ occupancy_data$doy <- log(occupancy_data$doy)
 # The format of the detection data is a list of the covariates, where each covariate has a name and is a matrix object 
 # with the number of visits as the columns.
 
-det_covs <- list(doy = scale(as.matrix(occupancy_data$doy)))
+det_covs <- list(doy = as.matrix(occupancy_data$doy))
 # colnames(det_covs) <- "day_of_year"
 str(det_covs)
 
@@ -214,12 +218,12 @@ model_ms <- msPGOcc(
 )
 
 # Print the summary of the model
-# summary(model, level = 'both')
-summary(model, level = 'community')
+summary(model_ms, level = 'both')
+summary(model_ms, level = 'community')
 
 # Posterior predictivce check
 # Approx. run time: 20 sec
-ppc.ms.out <- ppcOcc(model, 'chi-squared', group = 1) # Goup = 1 is across sites
+ppc.ms.out <- ppcOcc(model_ms, 'chi-squared', group = 1) # Goup = 1 is across sites
 # ppc.model <- ppcOcc(model, fit.stat = 'freeman-tukey', group = 1) # Goup = 1 is across sites
 summary(ppc.ms.out)
 waicOcc(model)
