@@ -380,7 +380,17 @@ ggsave(file.path("2_Outputs/Limited perceptibility/species_plots_occupancy/Harve
 
 
 ```
+# What is multi-species occupancy modeling?
+Multi-species occupancy is use to infer partially observed occupancy status, ${z_i}$, from the detection probability and the assumption that the observed occurrence is smaller than the actual occurrence.
+From a repeat visits persepective, the species that should be in the area and were never actually observed have an estimated occupancy status.
+On one hand, the multi-species occupancy model is used to parameterise detectio nand occupancy probabilities using our covariates of interest, such as age of harvest or time of day, on both of those estimated quantites.
+On the other, we can use the inferred occupancy status of all the species to derive ecologically interesting estimands, such as actual species richness (requires repeat visit).
 
+```R 
+z <- 0
+0.1^z
+
+```
 
 # Plot occupancy probability
 ```R 
