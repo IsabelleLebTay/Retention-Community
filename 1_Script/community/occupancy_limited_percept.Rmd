@@ -42,7 +42,7 @@ covariates <- covariates |>
   filter(RETN_m2 < 12000)
 View(covariates)
 # Scale some of these predictors
-predictors_to_scale <- c('RETN_m2', 'Year_since_logging', "Edge", "Year_since_logging2", "Dist_near_forest")
+# predictors_to_scale <- c('RETN_m2', 'Year_since_logging', "Edge", "Year_since_logging2", "Dist_near_forest")
 
 # Filter the sites in covariates so they match with fd_df
 correct_sites <- occupancy_data$location
@@ -52,7 +52,7 @@ covariates_matching_sites <- covariates |>
 nrow(covariates_matching_sites)
 nrow(occupancy_data)
 
-# 37 sites do not have any covariate data. These are likely becuase they didn't make the cut in terms of site quality.
+# n sites do not have any covariate data. These are likely becuase they didn't make the cut in terms of site quality.
 # Exclude the sites that are not in covariate
 sites_with_covs <- covariates_matching_sites$location
 occupancy_data_correct_sites <- occupancy_data |>
@@ -65,8 +65,8 @@ nrow(covariates_matching_sites)
 covariates <- covariates_matching_sites
 occupancy_data <- occupancy_data_correct_sites
 # View(Occupancy_data)
-
-write.csv(covariates, "0_Data/Processed/Limited perceptibility/covariates_unscaled.csv")
+Occupancy_data
+write.csv(covariates, "0_Data/Processed/Limited perceptibility/Post truncation/covariates_unscaled.csv")
 write.csv(occupancy_data, "0_Data/Processed/Limited perceptibility/Post truncation/Multi_spp_occupancy.csv")
 
 ```
@@ -82,18 +82,19 @@ dim(covariates)
 # For now, delete WIWR and WETA, since occu could not be calculated CHANGED, ALL GOOD
 # occupancy_data <- occupancy_data %>%
 #                             select(-c("WETA", "WIWR"))
-View(occupancy_data)
+# View(occupancy_data)
 colnames(occupancy_data)
 # To test, let's select a handful of spp
 # occupancy_data <- occupancy_data %>%
 #                             select(c("location", 'recording_date_time',"WTSP", "SWTH", "LISP", "OVEN"))
 
 # Select the columns of species detections
-species_cols  <- names(occupancy_data)[1:59]
-# print(species_cols)
+species_cols  <- names(occupancy_data)[1:62]
+species_cols <- species_cols[! species_cols %in% c("SM2")]
+print(species_cols)
 
 occupancy_format <- select(occupancy_data, location, species_cols)
-View(occupancy_format)
+# View(occupancy_format)
 
 # Step 1: Convert data to long format where each row is a specific detection event
 occupancy_long <- occupancy_format %>%
@@ -103,7 +104,7 @@ occupancy_long <- occupancy_format %>%
     species_id = as.factor(species),
     replicate_id = 1  # Adjust if you have multiple visits per site
   )
-View(occupancy_long)
+# View(occupancy_long)
 
 # Step 2: Create an array & fill with species, sites, replicates
 # Determine dimensions
@@ -127,32 +128,36 @@ for (i in 1:n_species) {
 }
 
 # Verify structure
-dim(y_array) # Num of species * num of sites * num of replicates (visits) # 04/18: 59*85*1
-
+dim(y_array) # Num of species * num of sites * num of replicates (visits) # 04/18: 59*85*1 # 04/23: 62*155*1
+View(covariates)
 # Prepare `occ.covs`: covariate for occurrence
-occ_covs <- as.matrix(covariates$Year_since_logging)
-dim(occ_covs) # 85 sites
+# occ_covs <- as.matrix(covariates$Year_since_logging) # get 1 column
+occ_covs <- cbind(covariates$Year_since_logging, covariates$Patch)
+dim(occ_covs) # number of sites
 # scaled_occ_covs <- scale(occ_covs)
 # occ_covs <- scaled_occ_covs
-colnames(occ_covs) <- "Year_since_logging"
+colnames(occ_covs) <- c("Year_since_logging", "Patch")
 View(occ_covs) # sites * covariates
 
 # Prepare detection covariates. This one is a list of matrices.
 covariates$doy <- yday(occupancy_data$recording_date_time)
+occupancy_data <- occupancy_data %>%
+  mutate(minutes = hour(recording_date_time) * 60 + minute(recording_date_time))
+covariates$tod <- occupancy_data$minutes
 
 # The format of the detection data is a list of the covariates, where each covariate has a name and is a matrix object 
 # with the number of visits as the columns.
 
-det_covs <- list(doy = as.matrix(covariates$doy))
-colnames(det_covs$doy) <- "V1" # visit 1
-View(det_covs$doy)
+det_covs <- list(doy = as.matrix(covariates$doy), tod = as.matrix(covariates$tod))
+colnames(det_covs) # <- "V1" # variable 1
+# View(det_covs$doy)
 str(det_covs)
 
 # Package all the data into a list for msPGOcc
 data_list <- list(y = y_array, occ.covs = occ_covs, det.covs = det_covs)
 
 # Check for NA, NaN, or Inf values in your dataset
-sum(is.na(data_list))  # all good
+sum(is.na(data_list))  # should be 0
 
 # Calculate correct dimensions
 # n_occ_covs <- ncol(occ_covs)  # Number of occupancy covariates
@@ -179,10 +184,11 @@ n_burn <- 1000
 n_thin <- 1
 
 # # Can also do this for the formulas:
-occ.ms.formula <- ~ scale(Year_since_logging) + scale(I(Year_since_logging^2))
-det.ms.formula <- ~ scale(doy)
+# occ.ms.formula <- ~ scale(Year_since_logging) + scale(I(Year_since_logging^2)) + Patch
+occ.ms.formula <- ~ scale(Year_since_logging)*Patch
+det.ms.formula <- ~ scale(doy) + scale(tod)
 # Fit the multi-species occupancy model
-model_ms <- msPGOcc(
+model_ms_2 <- msPGOcc(
   # occ.formula = ~ scale(Year_since_logging) + scale(I(Year_since_logging^2)),         # lme4 formula for occupancy covariates
   # det.formula = ~ scale(doy),                        # lme4 formula for detection covariates
   occ.formula = occ.ms.formula,
@@ -198,8 +204,8 @@ model_ms <- msPGOcc(
 )
 
 # Print the summary of the model
-summary(model_ms, level = 'both')
-summary(model_ms, level = 'community')
+summary(model_ms_2, level = 'both')
+summary(model_ms_2, level = 'community')
 
 # Posterior predictivce check
 # Approx. run time: 20 sec
@@ -245,7 +251,7 @@ library(tidybayes)
 # Density of covariates
 library(coda)
 library(boot)
-densplot(model_ms$beta.samples)
+# densplot(model_ms$beta.samples) have to find a better way to plot all these posterior densities
 
 # let's test one species
 
@@ -303,7 +309,8 @@ ggplot(plot_data, aes(x = Harv_age, y = Psi)) +
 species_ids <- c()  # or simply use species_array <- c()
 str(species_ids)
 # Loop to append species identifiers
-for (i in 1:59) {
+# Change eventually so it looks for al lthe 4-letter code, not manually magic numbers
+for (i in 1:62) {
   species <- paste0("sp", i)
   species_ids <- c(species_ids, species)
 }
@@ -311,8 +318,7 @@ for (i in 1:59) {
 # Check the result
 print(species_ids)
 
-# species_names <- species_cols[species_cols != "SM2"]
-species_names <- species_cols
+species_names <- species_cols[! species_cols %in% c("SM2")]
 # Prepare a dataframe to store all plotting data
 all_plot_data <- data.frame()
 
@@ -370,6 +376,7 @@ p <- ggplot(all_plot_data, aes(x = Harv_age, y = Psi)) +
           axis.title = element_text(color = "black"))
 
 # Print the plot
+# Something is wrong with this plot, I think. 2024/04/23
 print(p)
 
 ggsave(file.path("2_Outputs/Limited perceptibility/species_plots_occupancy/Harvest Age", "PsiHarvAge95CI.png"), p, width = 20, height = 15)
@@ -392,8 +399,11 @@ z <- 0
 ```R 
 # Community
 # Psi
+
+
+# 1. getting to know the MCMC output----
 # model_ms$psi.samples: 3-dim array of posterior samples for occupancy prob for each species
-length(model_ms$psi.samples) #10030000
+length(model_ms$psi.samples) #19220000
 model_ms$psi.samples[1,1,1]
 str(model_ms$psi.samples) #  list of 3: species * site * iterations
 # Why is it 3 dimensions?
@@ -405,20 +415,21 @@ as_tibble(model_ms$psi.samples) %>%
 length(model_ms$psi.samples[,1,1]) #2000 draws, also n_samples - n_burn
 n_draws <- n_samples - n_burn
 m1 <- mean(model_ms$psi.samples[, 1,1]) # This is the mean occ prob for ALFL at site 1
+# model_ms$psi.samples[, 1,1] # each site has a posterior of occupancy probability of density n draws
 median(model_ms$psi.samples[, 1,1])
-q1 <- unname(quantile(x = model_ms$psi.samples[, 1,1], probs = 0.025))
+q1 <- unname(quantile(x = model_ms$psi.samples[, 1,1], probs = 0.025)) 
 
-q1
+
 species_cols
 for (species in 1:length(species_cols)) {
   print(species)
   mean_psi <- model_ms$psi.samples[species,1,1]
-
-
 }
 
+
+# 2. Plot here---
 # Number of species
-num_species <- 59
+num_species <- 61
 Year_since_logging <- covariates$Year_since_logging
 Area <- covariates$RETN_m2
 Edge <- covariates$Edge
@@ -445,7 +456,7 @@ for (species in 1:num_species) {
         # Calculate statistics
         species_results[site, "Mean"] <- mean(site_data)
         species_results[site, "Median"] <- median(site_data)
-        species_results[site, "Q0.25"] <- quantile(site_data, probs = 0.025)
+        species_results[site, "Q0.25"] <- quantile(site_data, probs = 0.025) # Credible intervla for psi, not the covariate
         species_results[site, "Q97.5"] <- quantile(site_data, probs = 0.975)
     }
 
@@ -453,10 +464,12 @@ for (species in 1:num_species) {
     species_dfs[[species]] <- as.data.frame(species_results)
 }
 
-print(species_dfs[[41]])
-ggplot(species_dfs[[21]], aes(x = Patch, y = Mean)) +
+# 
+print(species_cols[12])
+# Check with one species
+ggplot(species_dfs[[12]], aes(x = Year_since_logging, y = Mean)) +
     geom_line() +
-    labs(title = "Mean Psi Across year since logging for ALFL", x = "Area", y = "Mean Psi")
+    labs(title = "Mean Psi Across year since logging for BTNW", x = "age", y = "Mean Psi")
 
 
 # Create a directory to save plots, if it does not already exist
@@ -465,7 +478,7 @@ if (!dir.exists(file.path("2_Outputs/Limited perceptibility", plot_dir))) {
   dir.create(file.path("2_Outputs/Limited perceptibility", plot_dir))
 }
 
-
+# One plot per species
 # Loop through each species and generate a plot
 for (species_index in 1:num_species) {
   # Create the plot
@@ -492,15 +505,15 @@ combined_df <- do.call(rbind, lapply(1:num_species, function(i) {
 # Convert 'Species' to a factor for better handling in ggplot2
 combined_df$Species <- factor(combined_df$Species)
 # Create a single plot with facets for each species
-p <- ggplot(combined_df, aes(x = Area, y = Median)) +
+p <- ggplot(combined_df, aes(x = Year_since_logging, y = Mean)) +
   geom_line(color = "blue") +
-  geom_ribbon(aes(ymin = Q0.25, ymax = Q97.5), fill = "blue", alpha = 0.2) +  # Adding ribbon for CI
+  geom_ribbon(aes(ymin = Q0.25, ymax = Q97.5), fill = "blue", alpha = 0.2) +  # ribbon for CI
   # geom_point(color = "red") +
-  facet_wrap(~ Species, scales = "free_y") +  # 'free_y' allows different y scales for each plot
-  labs(x = "Area", y = "Mean Psi") +
+  facet_wrap(~ Species, scales = "free_y") +  # 'free_y vs fixed_y
+  labs(x = "Harvest age", y = "Mean Psi") +
   theme_minimal() +
-  theme(strip.text.x = element_text(size = 8),  # Adjust font size for facet labels as needed
-        panel.spacing = unit(1, "lines"))  # Adjust spacing between facets
+  theme(strip.text.x = element_text(size = 8),  
+        panel.spacing = unit(1, "lines"))  
 
 # Display the plot
 print(p)
@@ -520,9 +533,35 @@ summary(explore_array)
 
 ```
 
+# Plot posterior densities
+Each species has a posterior estiamte for each covariate. What is the best graphical representation?
+```R 
+dim(model_ms)
+densplot(model_ms$beta.comm.samples)
+
+# Let's make prettier violinplots of the posterior estimates, for the community first
+comm_post <- as.data.frame(model_ms$beta.comm.samples)
+comm_post_long <- comm_post %>%
+  pivot_longer(cols = everything(), names_to = "Parameter", values_to = "Estimate")
+
+p <- ggplot(comm_post_long, aes(x = Parameter, y = Estimate, fill = Parameter)) +
+  geom_violin(trim = FALSE) +
+  theme_minimal() +
+  labs(
+       x = "Parameter",
+       y = "Community Posteriors") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(legend.position = "none")
+p
+ggsave(filename = "2_Outputs/Limited perceptibility/Posterior plots/Community_harv_age.png", plot = p, width = 4, height = 3)
+# Violinplots of the 
+
+```
+
 # Species richness
 From a repeat visit framework, the inferred z of unobserved or rare species can be estimated from the detection submodel. These can be added to the observed speices richness to get more accurate estiamte.
 ```R 
 
 
 ```
+

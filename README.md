@@ -16,3 +16,8 @@ We originally hypothesized that at the community level, such sampling refining w
 To fix this, we have to apply the perceibility truncation method. We are testing a way where only a single indiviual of each detected species is tagged, and each speices per visit has a tag for its least masked song. We can then apply the perceptibility truncation method on detection/non-detection data, based on the assumption that if the loudest individual is truncated out due to song faintness, no other individuals were within our specified sampling radius. <br>
 
 From this, we are applying a single multi-species occupancy model, which includes a species & site-specific detection submodel.
+
+## Workflow
+1. Get raw transcribed data from [Wildtrax](https://wildtrax.ca)
+2. Run the tags csv in the community.py script to reformat as detection/non-detection data for each site & species. Output: truncated community detection data
+3. Analyse the truncated community data in occupancy_limited_percept.Rmd
