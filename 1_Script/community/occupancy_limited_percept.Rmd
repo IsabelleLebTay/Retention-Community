@@ -105,16 +105,16 @@ occupancy_long <- occupancy_format %>%
   )
 View(occupancy_long)
 
-# Step 2: Create an array
+# Step 2: Create an array & fill with species, sites, replicates
 # Determine dimensions
 n_species <- length(unique(occupancy_long$species_id))
 n_sites <- length(unique(occupancy_long$site_id))
 n_replicates <- max(occupancy_long$replicate_id)  # Should be 1 
 
-# Create the array
+# Create array
 y_array <- array(dim = c(n_species, n_sites, n_replicates))
 
-# Fill the array
+# Fill array
 for (i in 1:n_species) {
   for (j in 1:n_sites) {
     # Subsetting to match species and site
@@ -122,7 +122,6 @@ for (i in 1:n_species) {
       filter(species_id == levels(occupancy_long$species_id)[i],
              site_id == levels(occupancy_long$site_id)[j])
     
-    # Assume detections are sorted correctly and fill the array
     y_array[i, j, 1:length(data_subset$replicate_id)] <- data_subset$detection
   }
 }
@@ -151,9 +150,6 @@ str(det_covs)
 
 # Package all the data into a list for msPGOcc
 data_list <- list(y = y_array, occ.covs = occ_covs, det.covs = det_covs)
-
-# Check the structure of the list
-str(data_list)
 
 # Check for NA, NaN, or Inf values in your dataset
 sum(is.na(data_list))  # all good
@@ -521,5 +517,12 @@ explore_array[1,1,] # 85 length, This is the site level
 explore_array[1,,] # This is the species * site
 explore_array[,,1] # This is all the draws
 summary(explore_array)
+
+```
+
+# Species richness
+From a repeat visit framework, the inferred z of unobserved or rare species can be estimated from the detection submodel. These can be added to the observed speices richness to get more accurate estiamte.
+```R 
+
 
 ```
