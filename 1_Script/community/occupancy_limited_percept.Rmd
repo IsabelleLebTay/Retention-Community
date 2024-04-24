@@ -91,7 +91,7 @@ colnames(occupancy_data)
 # Select the columns of species detections
 species_cols  <- names(occupancy_data)[1:62]
 species_cols <- species_cols[! species_cols %in% c("SM2")]
-print(species_cols)
+# print(species_cols)
 
 occupancy_format <- select(occupancy_data, location, species_cols)
 # View(occupancy_format)
@@ -188,7 +188,7 @@ n_thin <- 1
 occ.ms.formula <- ~ scale(Year_since_logging)*Patch
 det.ms.formula <- ~ scale(doy) + scale(tod)
 # Fit the multi-species occupancy model
-model_ms_2 <- msPGOcc(
+model_ms_inter <- msPGOcc(
   # occ.formula = ~ scale(Year_since_logging) + scale(I(Year_since_logging^2)),         # lme4 formula for occupancy covariates
   # det.formula = ~ scale(doy),                        # lme4 formula for detection covariates
   occ.formula = occ.ms.formula,
@@ -205,7 +205,7 @@ model_ms_2 <- msPGOcc(
 
 # Print the summary of the model
 summary(model_ms_2, level = 'both')
-summary(model_ms_2, level = 'community')
+summary(model_ms_inter, level = 'community')
 
 # Posterior predictivce check
 # Approx. run time: 20 sec
@@ -239,11 +239,6 @@ names(occupancy_data[47])
 # WETA, WIWR: infinite WAIC.
 
 ```
-
-
-# What are multi-species occupancy models?
-Detection and occupancy vary by species. Species-specific regression coefficients for occupancy and detection are treated as random effects arising from community-level normal distributions, which leads to greater precision of species-specific effects (particularly for rare species) and facilitates estimation of biodiversity metrics (Zipkin et al., 2009).
-
 
 # Plot posteriors, one species at a time
 ```R 
@@ -565,3 +560,118 @@ From a repeat visit framework, the inferred z of unobserved or rare species can 
 
 ```
 
+# Spatial multi-species occupancy model 
+
+```R 
+# Load unscaled covariates data.
+occupancy_data <- read.csv("0_Data/Processed/Limited perceptibility/Post truncation/Multi_spp_occupancy.csv")
+covariates <- read.csv("0_Data/Processed/Limited perceptibility/Post truncation/covariates_unscaled.csv")
+
+colnames(occupancy_data)
+species_cols  <- names(occupancy_data)[1:62]
+
+# Step 1: Convert data to long format where each row is a specific detection event
+occupancy_format <- select(occupancy_data, location, species_cols)
+
+occupancy_long <- occupancy_format %>%
+  pivot_longer(cols = species_cols, names_to = "species", values_to = "detection") %>%
+  mutate(
+    site_id = as.factor(location),  # Assuming 'location' is your site identifier column
+    species_id = as.factor(species),
+    replicate_id = 1  # Adjust if you have multiple visits per site
+  )
+# View(occupancy_long)
+
+# Step 2: Create an array & fill with species, sites, replicates
+# Determine dimensions
+n_species <- length(unique(occupancy_long$species_id))
+n_sites <- length(unique(occupancy_long$site_id))
+n_replicates <- max(occupancy_long$replicate_id)  # Should be 1 
+
+# array
+y_array <- array(dim = c(n_species, n_sites, n_replicates))
+
+# Fill array
+for (i in 1:n_species) {
+  for (j in 1:n_sites) {
+    # Subsetting to match species and site
+    data_subset <- occupancy_long %>%
+      filter(species_id == levels(occupancy_long$species_id)[i],
+             site_id == levels(occupancy_long$site_id)[j])
+    
+    y_array[i, j, 1:length(data_subset$replicate_id)] <- data_subset$detection
+  }
+}
+
+occ_covs <- cbind(covariates$Year_since_logging, covariates$Patch)
+is.matrix(occ_covs) # good
+colnames(occ_covs) <- c("Year_since_logging", "Patch")
+covariates$doy <- yday(occupancy_data$recording_date_time)
+occupancy_data <- occupancy_data %>%
+  mutate(minutes = hour(recording_date_time) * 60 + minute(recording_date_time))
+covariates$tod <- occupancy_data$minutes
+
+det_covs <- list(doy = as.matrix(covariates$doy), tod = as.matrix(covariates$tod))
+is.matrix(det_covs$doy)
+is.matrix(det_covs$tod)
+# coords is a J×2 matrix of the observation coordinates.
+# Note that spOccupancy assumes coordinates are specified in a projected coordinate system.
+coords <- cbind(covariates$latitude, covariates$longitude)
+is.matrix(coords) # good
+data_list <- list(y = y_array, occ.covs = occ_covs, det.covs = det_covs, coords = coords)
+
+# Initial values, priors, and batches are form the example here (https://www.jeffdoser.com/files/spoccupancy-web/reference/spmspgocc)
+# Number of batches
+n.batch <- 30
+# Batch length
+batch.length <- 25
+n.samples <- n.batch * batch.length
+
+# Priors
+prior.list <- list(beta.comm.normal = list(mean = 0, var = 2.72), 
+                   alpha.comm.normal = list(mean = 0, var = 2.72), 
+                   tau.sq.beta.ig = list(a = 0.1, b = 0.1), 
+                   tau.sq.alpha.ig = list(a = 0.1, b = 0.1),
+                   phi.unif = list(a = 3/1, b = 3/.1), 
+                   sigma.sq.ig = list(a = 2, b = 2)) 
+# Initial values
+inits.list <- list(alpha.comm = 0, 
+                   beta.comm = 0, 
+                   beta = 0, 
+                   alpha = 0,
+                   tau.sq.beta = 1, 
+                   tau.sq.alpha = 1, 
+                   phi = 3 / .5, 
+                   sigma.sq = 2,
+                  #  w = matrix(0, nrow = N, ncol = nrow(X)), # I don't know what this is
+                   z = apply(y_array, c(1, 2), max, na.rm = TRUE)) # updated with my objects
+# Tuning
+tuning.list <- list(phi = 1) 
+
+occ.ms.formula <- ~ scale(Year_since_logging)*Patch
+det.ms.formula <- ~ scale(doy) + scale(tod)
+
+sp_ms_Occ <- spMsPGOcc(occ.formula = occ.ms.formula, 
+                 det.formula = det.ms.formula, 
+                 data = data_list,
+                 inits = inits.list, 
+                 n.batch = n.batch, # see Roberts and Rosenthal (2009)
+                 batch.length = batch.length, # see Roberts and Rosenthal (2009)
+                 accept.rate = 0.43, # this is deafult. See Roberts and Rosenthal (2009)
+                 priors = prior.list, 
+                 cov.model = "exponential", 
+                 tuning = tuning.list, 
+                 n.omp.threads = 1, 
+                 verbose = TRUE, 
+                 NNGP = TRUE, # this sets it to Nearest Neighbour, instead of Gaussian Process
+                 n.neighbors = 5, # from the paper on this topic (Datta et al., 2016), says 15 is good, but 5 might even be ok
+                 search.type = 'cb', # nearest neighbour search algorithm. 'cb' is fastest
+                 n.report = 10, # dont know
+                 n.burn = 500, 
+                 n.thin = 1, 
+                 n.chains = 1)
+
+summary(sp_ms_Occ, level = 'community')
+
+
+```
