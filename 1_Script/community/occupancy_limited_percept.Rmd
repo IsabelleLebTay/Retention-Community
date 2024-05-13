@@ -2,7 +2,7 @@
 title: multi-species occupancy from limited perceptability data
 date: 2024
 type: reference
-tags: " #code/R "
+tags: " #1_Scipt/community "
 description: "Multi-species occupancy on perceptibility limited data"
 ---
 
@@ -14,8 +14,9 @@ description: "Multi-species occupancy on perceptibility limited data"
 library(tidyverse)
 library(spOccupancy)
 library(tidybayes)
-library(ggplot2)
-library(tidyr)
+library(boot)
+#library(ggplot2)
+#library(tidyr)
 ```
 
 # Covariates & Occupancy dataframe
@@ -23,11 +24,13 @@ library(tidyr)
 occupancy_data <- read.csv(file.path("0_Data/Processed/Limited perceptibility", "Occupancy_truncated_150.csv"))
 covariates <- read_csv("0_Data/Processed/merged_covariates.csv")
 dist_to_forest <- read_csv("0_Data/Processed/retn dist to nearest forest.csv")
+colnames(covariates)
 dist_to_forest <- select(dist_to_forest, location, Dist_near_forest)
 covariates <- merge(covariates, dist_to_forest, by = "location")
-# View(covariates)
-covariates <- covariates %>% select(-c("TEWA", "OSFL", "RCKI", "YRWA", "REVI", "WTSP"))
-covariates$DateTime <- occupancy_data$recording_date_time
+covariates <- merge(covariates, occupancy_data[ ,c("location", "recording_date_time")])
+View(covariates)
+# covariates <- covariates %>% select(-c("TEWA", "OSFL", "RCKI", "YRWA", "REVI", "WTSP"))
+covariates$DateTime <- covariates$recording_date_time
 # Add amount edge
 covariates$Edge <- ifelse(covariates$RETN_m2 != 0 & covariates$RETN_perimeter_m !=0, 
                             covariates$RETN_m2 / covariates$RETN_perimeter_m, 0)
@@ -57,43 +60,49 @@ nrow(occupancy_data)
 sites_with_covs <- covariates_matching_sites$location
 occupancy_data_correct_sites <- occupancy_data |>
                           filter(location %in% sites_with_covs)
-nrow(occupancy_data_correct_sites) # 119 sites as of 2024-04-15. Down to 85 on 2024-04-17
+nrow(occupancy_data_correct_sites) # 155 sites as of 2024-05-15. Down to 85 on 2024-04-17
 nrow(covariates_matching_sites)
 # write.csv(covariates_matching_sites, "0_Data/Processed/Limited perceptibility/Post truncation/covariates_prepped_comm.csv" )
 # Now these two are mathcing in length (368 sites)
 # Reset the names os it is clear
 covariates <- covariates_matching_sites
 occupancy_data <- occupancy_data_correct_sites
-# View(Occupancy_data)
-Occupancy_data
+
 write.csv(covariates, "0_Data/Processed/Limited perceptibility/Post truncation/covariates_unscaled.csv")
 write.csv(occupancy_data, "0_Data/Processed/Limited perceptibility/Post truncation/Multi_spp_occupancy.csv")
 
 ```
 
 
+
+The species response is likely linked to their guild. I could add a categorical effect of the guild with which each speices is associated, which could be either the 
+general habitat, so forest, cutblock, or generalist, or the nesting behaviour, like gorund, shrub, and canopy.
+
+I have two options, either I add it explicitely in the model, or I evaluate it afyer the model runs.
+
 # Run: multi species occupancy
 ```R 
 # Load unscaled covariates data.
 occupancy_data <- read.csv("0_Data/Processed/Limited perceptibility/Post truncation/Multi_spp_occupancy.csv")
 covariates <- read.csv("0_Data/Processed/Limited perceptibility/Post truncation/covariates_unscaled.csv")
-dim(covariates)
-# View(covariates)
+dim(occupancy_data)
+# View(occupancy_data)
 # For now, delete WIWR and WETA, since occu could not be calculated CHANGED, ALL GOOD
 # occupancy_data <- occupancy_data %>%
 #                             select(-c("WETA", "WIWR"))
 # View(occupancy_data)
-colnames(occupancy_data)
+colnames(covariates)
 # To test, let's select a handful of spp
 # occupancy_data <- occupancy_data %>%
 #                             select(c("location", 'recording_date_time',"WTSP", "SWTH", "LISP", "OVEN"))
 
 # Select the columns of species detections
-species_cols  <- names(occupancy_data)[1:62]
+species_cols  <- names(occupancy_data)[1:61]
 species_cols <- species_cols[! species_cols %in% c("SM2")]
 # print(species_cols)
 
 occupancy_format <- select(occupancy_data, location, species_cols)
+# occupancy_format %>% select(all_of(species_cols))
 # View(occupancy_format)
 
 # Step 1: Convert data to long format where each row is a specific detection event
@@ -128,34 +137,35 @@ for (i in 1:n_species) {
 }
 
 # Verify structure
-dim(y_array) # Num of species * num of sites * num of replicates (visits) # 04/18: 59*85*1 # 04/23: 62*155*1
-View(covariates)
+dim(y_array) # Num of species * num of sites * num of replicates (visits) # 05/13: 61*155*1 # 04/23: 62*155*1
+# View(covariates)
 # Prepare `occ.covs`: covariate for occurrence
 # occ_covs <- as.matrix(covariates$Year_since_logging) # get 1 column
-occ_covs <- cbind(covariates$Year_since_logging, covariates$Patch)
+occ_covs <- cbind(covariates$Year_since_logging, covariates$Patch, covariates$RETN_m2, covariates$Edge)
 dim(occ_covs) # number of sites
+# print(occ_covs)
 # scaled_occ_covs <- scale(occ_covs)
 # occ_covs <- scaled_occ_covs
-colnames(occ_covs) <- c("Year_since_logging", "Patch")
-View(occ_covs) # sites * covariates
+colnames(occ_covs) <- c("Year_since_logging", "Patch", "Area", "Edge")
+colnames(occ_covs) # sites * covariates
 
 # Prepare detection covariates. This one is a list of matrices.
-covariates$doy <- yday(occupancy_data$recording_date_time)
-occupancy_data <- occupancy_data %>%
-  mutate(minutes = hour(recording_date_time) * 60 + minute(recording_date_time))
-covariates$tod <- occupancy_data$minutes
+covariates$doy <- yday(covariates$DateTime)
+covariates <- covariates %>%
+  mutate(minutes = hour(DateTime) * 60 + minute(DateTime))
+covariates$tod <- covariates$minutes
 
 # The format of the detection data is a list of the covariates, where each covariate has a name and is a matrix object 
 # with the number of visits as the columns.
 
 det_covs <- list(doy = as.matrix(covariates$doy), tod = as.matrix(covariates$tod))
-colnames(det_covs) # <- "V1" # variable 1
+# colnames(det_covs) # <- "V1" # variable 1
 # View(det_covs$doy)
-str(det_covs)
-
+str(occ_covs)
+head(occ_covs)
 # Package all the data into a list for msPGOcc
 data_list <- list(y = y_array, occ.covs = occ_covs, det.covs = det_covs)
-
+dim(occ_covs)
 # Check for NA, NaN, or Inf values in your dataset
 sum(is.na(data_list))  # should be 0
 
@@ -171,7 +181,7 @@ inits.list <- list(alpha.comm = 0,
                    tau.sq.beta = 1, 
                    tau.sq.alpha = 1, 
                    z = apply(y_array, c(1, 2), max, na.rm = TRUE))
-
+str(inits.list)
 # Priors list
 prior.list <- list(beta.comm.normal = list(mean = 0, var = 2.72), 
                    alpha.comm.normal = list(mean = 0, var = 2.72), 
@@ -185,7 +195,7 @@ n_thin <- 1
 
 # # Can also do this for the formulas:
 # occ.ms.formula <- ~ scale(Year_since_logging) + scale(I(Year_since_logging^2)) + Patch
-occ.ms.formula <- ~ scale(Year_since_logging)*Patch
+occ.ms.formula <- ~ scale(Year_since_logging)*Patch + scale(poly(Year_since_logging^2)) + scale(Area)
 det.ms.formula <- ~ scale(doy) + scale(tod)
 # Fit the multi-species occupancy model
 model_ms_inter <- msPGOcc(
@@ -252,10 +262,10 @@ library(boot)
 
 # Get the intercept posteriors 
 # model_ms$beta.samples is a coda object of posteriors
-dim(model_ms$beta.samples) # draws * length of predictors for each species
-summary(model_ms$beta.samples)
+dim(model_ms_inter$beta.samples) # draws * length of predictors for each species
+summary(model_ms_inter$beta.samples)
 print(species_cols[33])
-beta_post <- as.data.frame(as.matrix(model_ms$beta.samples))
+beta_post <- as.data.frame(as.matrix(model_ms_inter$beta.samples))
 View(beta_post)
 colnames(beta_post)
 head(beta_post[1])
@@ -302,10 +312,10 @@ ggplot(plot_data, aes(x = Harv_age, y = Psi)) +
 ```R 
 # Get an array of the species id in the model output
 species_ids <- c()  # or simply use species_array <- c()
-str(species_ids)
+# str(species_ids)
 # Loop to append species identifiers
 # Change eventually so it looks for al lthe 4-letter code, not manually magic numbers
-for (i in 1:62) {
+for (i in 1:61) {
   species <- paste0("sp", i)
   species_ids <- c(species_ids, species)
 }
@@ -321,23 +331,37 @@ all_plot_data <- data.frame()
 for (i in seq_along(species_ids)) {
     species_id <- species_ids[i]
     species_name <- species_names[i]
-
+    
+    # occupancy lofit formula: scale(Year_since_logging)*Patch + scale(poly(Year_since_logging^2)) + scale(Area)
     # Extract coefficients for this species
     intercept_psi <- mean(beta_post[[paste("(Intercept)-", species_id, sep="")]])
+
     slope_harvage <- mean(beta_post[[paste("scale(Year_since_logging)-", species_id, sep="")]])
     lower_harvage <- unname(quantile(beta_post[[paste("scale(Year_since_logging)-", species_id, sep="")]], probs = 0.025))
     upper_harvage <- unname(quantile(beta_post[[paste("scale(Year_since_logging)-", species_id, sep="")]], probs = 0.975))
     
-    slope_harvage2 <- mean(beta_post[[paste("scale(I(Year_since_logging^2))-", species_id, sep="")]])
-    lower_harvage2 <- unname(quantile(beta_post[[paste("scale(I(Year_since_logging^2))-", species_id, sep="")]], probs = 0.025))
-    upper_harvage2 <- unname(quantile(beta_post[[paste("scale(I(Year_since_logging^2))-", species_id, sep="")]], probs = 0.975))
+    slope_harvage2 <- mean(beta_post[[paste("scale(poly(Year_since_logging^2))-", species_id, sep="")]])
+    lower_harvage2 <- unname(quantile(beta_post[[paste("scale(poly(Year_since_logging^2))-", species_id, sep="")]], probs = 0.025))
+    upper_harvage2 <- unname(quantile(beta_post[[paste("scale(poly(Year_since_logging^2))-", species_id, sep="")]], probs = 0.975))
+    
+    slope_patch <-mean(beta_post[[paste("Patch-", species_id, sep="")]])
+    lower_patch <- unname(quantile(beta_post[[paste("Patch-", species_id, sep="")]], probs = 0.025))
+    upper_patch <- unname(quantile(beta_post[[paste("Patch-", species_id, sep="")]], probs = 0.975))
+
+    slope_area <-mean(beta_post[[paste("scale(Area)-", species_id, sep="")]])
+    lower_area <- unname(quantile(beta_post[[paste("scale(Area)-", species_id, sep="")]], probs = 0.025))
+    upper_area <- unname(quantile(beta_post[[paste("scale(Area)-", species_id, sep="")]], probs = 0.975))
 
     # Generate predictions
     Harv_age <- scale(seq(1, 22, length.out = 100))
     # all harv age vary
-    mean_pred_harvage <- inv.logit(intercept_psi + slope_harvage * Harv_age + slope_harvage2 * Harv_age^2)
-    lower_pred_harvage <- inv.logit(intercept_psi + lower_harvage * Harv_age + lower_harvage2 * Harv_age^2)
-    upper_pred_harvage <- inv.logit(intercept_psi + upper_harvage * Harv_age + upper_harvage2 * Harv_age^2)
+    # mean_pred_harvage <- inv.logit(intercept_psi + slope_harvage * Harv_age + slope_harvage2 * Harv_age^2)
+    # lower_pred_harvage <- inv.logit(intercept_psi + lower_harvage * Harv_age + lower_harvage2 * Harv_age^2)
+    # upper_pred_harvage <- inv.logit(intercept_psi + upper_harvage * Harv_age + upper_harvage2 * Harv_age^2)
+
+      mean_pred_harvage <- inv.logit(intercept_psi + slope_harvage * Harv_age)
+    lower_pred_harvage <- inv.logit(intercept_psi + lower_harvage * Harv_age)
+    upper_pred_harvage <- inv.logit(intercept_psi + upper_harvage * Harv_age)
 
     # # # no variation form harvage^2
     # # mean_pred_harvage <- inv.logit(intercept_psi + slope_harvage * Harv_age)
@@ -365,7 +389,7 @@ p <- ggplot(all_plot_data, aes(x = Harv_age, y = Psi)) +
     geom_ribbon(aes(ymin = LowerCI, ymax = UpperCI), fill = "darkgreen", alpha = 0.1) +
     geom_line(color = "darkgreen") +
     facet_wrap(~ Species, scales = "free_y") +
-    labs(x = "Harvest Age", y = "Estimated Probability of Initial Occupancy (Psi)") +
+    labs(x = "Harvest Age", y = "Estimated Probability of Occupancy (Psi)") +
     theme_classic() +
     theme(text = element_text(size = 14),
           axis.title = element_text(color = "black"))
@@ -374,7 +398,7 @@ p <- ggplot(all_plot_data, aes(x = Harv_age, y = Psi)) +
 # Something is wrong with this plot, I think. 2024/04/23
 print(p)
 
-ggsave(file.path("2_Outputs/Limited perceptibility/species_plots_occupancy/Harvest Age", "PsiHarvAge95CI.png"), p, width = 20, height = 15)
+ggsave(file.path("2_Outputs/Limited perceptibility/species_plots_occupancy/Harvest Age", "PsiHarvAge95CI_age.png"), p, width = 20, height = 15)
 
 
 ```
@@ -488,7 +512,7 @@ for (species_index in 1:num_species) {
   print(p)
 
   # Save the plot to a file
-  ggsave(filename = paste0("2_Outputs/Limited perceptibility/species_plots_occupancy/Patch",  "/", species_cols[species_index], "_psi_plot.png"), plot = p, width = 8, height = 6)
+  # ggsave(filename = paste0("2_Outputs/Limited perceptibility/species_plots_occupancy/Patch",  "/", species_cols[species_index], "_psi_plot.png"), plot = p, width = 8, height = 6)
 }
 
 # All plots into 1 figure
