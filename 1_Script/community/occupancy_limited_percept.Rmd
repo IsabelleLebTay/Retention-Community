@@ -6,7 +6,7 @@ tags: " #1_Scipt/community "
 description: "Multi-species occupancy on perceptibility limited data"
 ---
 
-**Script modified by ILT**
+**Script by ILT**
 
 
 # Load packages
