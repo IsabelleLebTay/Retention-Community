@@ -3,7 +3,7 @@ title: multi-species occupancy from limited perceptability data
 date: 2024
 type: reference
 tags: " #1_Scipt/community "
-description: "Multi-species occupancy on perceptibility limited data"
+description: "Multi-species occupancy on detection space limited data"
 ---
 
 **Script by ILT**
@@ -76,9 +76,15 @@ write.csv(occupancy_data, "0_Data/Processed/Limited perceptibility/Post truncati
 
 
 The species response is likely linked to their guild. I could add a categorical effect of the guild with which each speices is associated, which could be either the 
-general habitat, so forest, cutblock, or generalist, or the nesting behaviour, like gorund, shrub, and canopy.
+general habitat, so forest, cutblock, or generalist, or the nesting behaviour, like ground, shrub, and canopy.
 
 I have two options, either I add it explicitely in the model, or I evaluate it afyer the model runs.
+
+## What is the model?
+https://doserlab.com/files/spoccupancy-web/
+Multi-species occupancy modekl, which can be spatial to integrate landscape-level covariates. Models are fit using Pólya-Gamma data augmentation. Spatial models are fit using Gaussian processes.
+Multiple single-species occupancy data sets using a joint likelihood framework. For multi-species models, spOccupancy provides functions to account for residual species correlations in a joint species distribution model framework while accounting for imperfect detection
+
 
 # Run: multi species occupancy
 ```R 
